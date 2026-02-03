@@ -90,6 +90,7 @@
     "type": "module",
     "typings": "dist/types/index.d.ts",
     "files": [
-        "dist"
+        "dist",
+        "docs"
     ]
 }
