@@ -1,9 +1,6 @@
-=============
-Release Notes
-=============
+# Release Notes
 
-v1.0.0
-======
+## v1.0.0
 
 * Alert & Notification System
 * Class Loader

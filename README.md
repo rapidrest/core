@@ -1,11 +1,8 @@
-=======================
-RapidREST: Core Library
-=======================
+# RapidREST: Core Library
 
 A set of common utilities shared amongst all RapidREST based applications and servers.
 
-Features
-========
+## Features
 
 * Alert & Notification System
 * Class Loader
@@ -19,18 +16,15 @@ Features
 * User authentication utilities
 * Validation utilities
 
-Getting Started
-===============
+## Getting Started
 
-Yarn
-~~~~
+### Yarn
 
 ```
 yarn add @rapidrest/core
 ```
 
-NPM
-~~~
+### NPM
 
 ```
 npm i @rapidrest/core
