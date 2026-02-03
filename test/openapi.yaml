@@ -1,0 +1,904 @@
+openapi: 3.1.0
+info:
+  version: "1.0"
+paths:
+  /:
+    x-name: Index
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+      x-name: get
+  /admin/clear-cache:
+    x-name: Admin
+    get:
+      responses:
+        "204":
+          description: No Content
+      security:
+        - jwt: []
+      x-name: clearCache
+  /admin/inspect.websocket:
+    x-name: Admin
+    x-upgrade: true
+    get:
+      responses:
+        "204":
+          description: No Content
+      security:
+        - jwt: []
+      x-name: inspect
+  /admin/logs.websocket:
+    x-name: Admin
+    x-upgrade: true
+    get:
+      responses:
+        "204":
+          description: No Content
+      security:
+        - jwt: []
+      x-name: logs
+  /admin/release-notes:
+    x-name: Admin
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            text/x-rst:
+              schema:
+                type: string
+      security:
+        - j: []
+        - w: []
+        - t: []
+      x-name: get
+  /admin/restart:
+    x-name: Admin
+    get:
+      responses:
+        "204":
+          description: No Content
+      security:
+        - jwt: []
+      x-name: restart
+  /api-docs:
+    x-name: OpenAPI
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            text/html:
+              schema:
+                type: string
+      x-name: getHTML
+  /openapi.json:
+    x-name: OpenAPI
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: string
+      x-name: getJSON
+  /openapi.yaml:
+    x-name: OpenAPI
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            text/yaml:
+              schema:
+                type: string
+      x-name: getYAML
+  /metrics:
+    x-name: Metrics
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            text/plain; version=0.0.4; charset=utf-8:
+              schema:
+                type: string
+      x-name: getMetrics
+  /metrics/:metric:
+    parameters:
+      - name: metric
+        in: path
+        required: true
+        schema:
+          type: string
+    x-name: Metrics
+    get:
+      responses:
+        "200":
+          description: ""
+          content:
+            text/plain; version=0.0.4; charset=utf-8:
+              schema:
+                type: string
+      x-name: getSingleMetric
+  /cachedusers:
+    x-schema: CacheUser
+    head:
+      description: Returns the total number of user accounts matching the given search
+        criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: count
+    post:
+      description: Creates a new user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/CacheUser"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/CacheUser"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/CacheUser"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/CacheUser"
+      x-name: create
+    get:
+      description: Returns all user accounts matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CacheUser"
+      x-name: findAll
+    delete:
+      description: Deletes all existing user accounts matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: truncate
+  /cachedusers/:id:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    x-schema: CacheUser
+    delete:
+      description: Deletes an existing user account.
+      responses:
+        "204":
+          description: No Content
+      x-name: delete
+    get:
+      description: Returns the user account with the given unique identifier.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CacheUser"
+      x-name: findById
+    put:
+      description: Updates an existing user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CacheUser"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CacheUser"
+      x-name: update
+  /hello:
+    x-name: Default
+    get:
+      description: Returns `Hello World!`.
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+      x-name: helloWorld
+  /token:
+    x-name: Default
+    get:
+      description: Returns the user data for a valid authenticated user.
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+      security:
+        - jwt: []
+      x-name: authToken
+  /error:
+    x-name: Default
+    get:
+      description: Throws a 400-level error and returns the error as the response body.
+      responses:
+        "204":
+          description: No Content
+      x-name: throwError
+  /connect.websocket:
+    x-name: Default
+    x-upgrade: true
+    get:
+      description: Establishes a socket connection that responds to all messages with
+        `echo ${msg}`.
+      responses:
+        "204":
+          description: No Content
+      x-name: wsConnect
+  /connect-secure.websocket:
+    x-name: Default
+    x-upgrade: true
+    get:
+      description: Establishes a secured socket connection that responds to all
+        messages with `echo ${msg}`.
+      responses:
+        "204":
+          description: No Content
+      security:
+        - jwt: []
+      x-name: wsConnectSecure
+  /items:
+    x-schema: Item
+    head:
+      description: Returns the total number of items matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: count
+    post:
+      description: Creates a new item.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/Item"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/Item"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Item"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/Item"
+      x-name: create
+    get:
+      description: Returns all items matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+      x-name: findAll
+    delete:
+      description: Deletes all existing items matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: truncate
+  /items/:id:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    x-schema: Item
+    delete:
+      description: Deletes an existing item.
+      responses:
+        "204":
+          description: No Content
+      x-name: delete
+    get:
+      description: Returns the item with the given unique identifier.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+      x-name: findById
+    put:
+      description: Updates an existing item.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Item"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+      x-name: update
+  /users:
+    x-schema: User
+    head:
+      description: Returns the total number of user accounts matching the given search
+        criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: count
+    post:
+      description: Creates a new user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/User"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+      x-name: create
+    put:
+      description: Updates multiple user accounts in bulk.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+      x-name: updateBulk
+    get:
+      description: Returns all user accounts matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+      x-name: findAll
+    delete:
+      description: Deletes all existing user accounts matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: truncate
+  /users/:id:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    x-schema: User
+    delete:
+      description: Deletes an existing user account.
+      responses:
+        "204":
+          description: No Content
+      x-name: delete
+    head:
+      description: Returns a boolean integer indicating whether or not a user account
+        with the given unique identifier exists.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: exists
+    x-after:
+      - cleanPII
+    get:
+      description: Returns the user account with the given unique identifier.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+      x-name: findById
+    x-before:
+      - validate
+    put:
+      description: Updates an existing user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: promise
+      x-name: update
+  /users/:id/:property:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: property
+        in: path
+        required: true
+        schema:
+          type: string
+    x-before:
+      - validate
+    x-schema: User
+    put:
+      description: Updates a single property of an existing user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+      x-name: updateProperty
+  /versionedusers:
+    x-schema: VersionedUser
+    head:
+      description: Returns the total number of user accounts matching the given search
+        criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: count
+    post:
+      description: Creates a new user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/VersionedUser"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/VersionedUser"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/VersionedUser"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/VersionedUser"
+      x-name: create
+    get:
+      description: Returns all user accounts matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VersionedUser"
+      x-name: findAll
+    delete:
+      description: Deletes all existing user accounts matching the given search criteria.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: truncate
+  /versionedusers/:id:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    x-schema: VersionedUser
+    delete:
+      description: Deletes an existing user account.
+      parameters:
+        - $ref: "#/components/parameters/version"
+        - name: delete
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "204":
+          description: No Content
+      x-name: delete
+    get:
+      description: Returns the user account with the given unique identifier.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/sort"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionedUser"
+      x-name: findById
+    put:
+      description: Updates an existing user account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VersionedUser"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionedUser"
+      x-name: update
+components:
+  schemas:
+    CacheUser:
+      properties:
+        uid:
+          default: 1cbffd72-5cc5-4a6d-a8a0-2303b8cb8ec3
+          description: The universally unique identifier of the entity.
+          type: string
+          x-identifier: true
+        dateCreated:
+          default: 2023-12-14T02:47:54.244Z
+          description: The date and time that the entity was created.
+          type: date
+        dateModified:
+          default: 2023-12-14T02:47:54.244Z
+          description: The date and time that the entity was last modified.
+          type: date
+        version:
+          default: 0
+          description: The optimistic lock version.
+          type: number
+        firstName:
+          default: ""
+          description: The first name of the user.
+          type: string
+        lastName:
+          default: ""
+          description: The surname of the user.
+          type: string
+        age:
+          default: 0
+          description: The age of the user.
+          type: number
+      required:
+        - uid
+        - dateCreated
+        - dateModified
+        - version
+        - firstName
+        - lastName
+        - age
+      x-baseClass: BaseMongoEntity
+      x-cache: 30
+      x-datastore: mongodb
+    Item:
+      properties:
+        uid:
+          default: 815c8883-9c56-461b-973e-14d7b59f616c
+          description: The universally unique identifier of the entity.
+          type: string
+          x-identifier: true
+        dateCreated:
+          default: 2023-12-14T02:47:54.245Z
+          description: The date and time that the entity was created.
+          type: date
+        dateModified:
+          default: 2023-12-14T02:47:54.245Z
+          description: The date and time that the entity was last modified.
+          type: date
+        version:
+          default: 0
+          description: The optimistic lock version.
+          type: number
+        name:
+          default: ""
+          description: The unique name of the item.
+          type: string
+          x-identifier: true
+        quantity:
+          default: 0
+          description: The amount of the item that exists.
+          type: number
+        cost:
+          default: 0
+          description: The cost that must be paid by the user to acquire the item.
+          type: number
+      required:
+        - uid
+        - dateCreated
+        - dateModified
+        - version
+        - name
+        - quantity
+        - cost
+      x-baseClass: BaseEntity
+      x-datastore: sqlite
+    User:
+      properties:
+        uid:
+          default: 40d278b6-4ae3-45e4-ac68-9a9f54f8ac3d
+          description: The universally unique identifier of the entity.
+          type: string
+          x-identifier: true
+        dateCreated:
+          default: 2023-12-14T02:47:54.245Z
+          description: The date and time that the entity was created.
+          type: date
+        dateModified:
+          default: 2023-12-14T02:47:54.245Z
+          description: The date and time that the entity was last modified.
+          type: date
+        version:
+          default: 0
+          description: The optimistic lock version.
+          type: number
+        name:
+          default: ""
+          description: The unique identifier of the user.
+          type: string
+          x-identifier: true
+        firstName:
+          default: ""
+          description: The first name of the user.
+          type: string
+        lastName:
+          default: ""
+          description: The surname of the user.
+          type: string
+        age:
+          default: 0
+          description: The age of the user.
+          type: number
+        productUid:
+          description: The uuid of the product that is associated with this user.
+          type: string
+          x-identifier: true
+        uType:
+          oneOf:
+            - type: string
+            - type: number
+            - {}
+      required:
+        - uid
+        - dateCreated
+        - dateModified
+        - version
+        - name
+        - firstName
+        - lastName
+        - age
+      x-baseClass: BaseMongoEntity
+      x-datastore: mongodb
+    VersionedUser:
+      properties:
+        uid:
+          default: 7ac86afe-1bee-4c75-8dc0-674a09d6aae3
+          description: The universally unique identifier of the entity.
+          type: string
+          x-identifier: true
+        dateCreated:
+          default: 2023-12-14T02:47:54.245Z
+          description: The date and time that the entity was created.
+          type: date
+        dateModified:
+          default: 2023-12-14T02:47:54.245Z
+          description: The date and time that the entity was last modified.
+          type: date
+        version:
+          default: 0
+          description: The optimistic lock version.
+          type: number
+        deleted:
+          default: false
+          type: boolean
+        name:
+          default: ""
+          description: The unique identifier of the user.
+          type: string
+          x-identifier: true
+        firstName:
+          default: ""
+          description: The first name of the user.
+          type: string
+        lastName:
+          default: ""
+          description: The surname of the user.
+          type: string
+        age:
+          default: 0
+          description: The age of the user.
+          type: number
+      required:
+        - uid
+        - dateCreated
+        - dateModified
+        - version
+        - deleted
+        - name
+        - firstName
+        - lastName
+        - age
+      x-baseClass: RecoverableBaseMongoEntity
+      x-datastore: mongodb
+      x-versioned: -1
+  responses: {}
+  parameters:
+    id:
+      description: The unique identifier of the resource.
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    page:
+      description: The index of the current page when retrieving paginated results.
+      name: page
+      in: query
+      required: false
+      schema:
+        type: number
+    limit:
+      description: The maximum number of records to retrieve.
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: number
+    sort:
+      description: The property and direction with which to sort the results by.
+      name: sort
+      in: query
+      required: false
+      schema:
+        oneOf:
+          - description: The name of the property to sort by, in ascending order.
+            type: string
+            example: propertyName
+          - description: The name of the property to sort by, in ascending order.
+            type: object
+            example:
+              <propertyName>: <direction>
+    version:
+      description: The unique version of the resource.
+      name: version
+      in: path
+      required: false
+      schema:
+        type: number
+  examples: {}
+  requestBodies: {}
+  headers: {}
+  securitySchemes: {}
+  links: {}
+  callbacks: {}
+tags: []
+servers:
+  - {}
