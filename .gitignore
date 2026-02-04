@@ -9,6 +9,7 @@ compiled
 .awcache
 .rpt2_cache
 docs/_build
+docs/reference
 .vs
 test\.dir\.copy/
 test\.dir/
