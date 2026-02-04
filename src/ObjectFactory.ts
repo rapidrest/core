@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import "reflect-metadata";
 import { Logger } from "./Logger.js";
-import * as uuid from "uuid";
+import { v4 as uuidV4 } from "uuid";
 
 /**
  * The set of options to use when creating new instances of objects.
@@ -263,7 +263,7 @@ export class ObjectFactory {
      * @param args The set of constructor arguments to use during construction
      */
     public newInstance<T>(type: any, options?: InstanceOptions): T | Promise<T> {
-        let name: string = options?.name || uuid.v4();
+        let name: string = options?.name || uuidV4();
         const initialize: boolean = options?.initialize !== undefined ? options.initialize : true;
         const args: any[] = options?.args || [];
 

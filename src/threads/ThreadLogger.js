@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-const { parentPort, threadId } = require("worker_threads");
+import { parentPort, threadId } from "worker_threads";
 
 /**
  * Provides a Winston transport for forwarding logs from this thread to the parent's logger instance.

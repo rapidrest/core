@@ -5,12 +5,12 @@ import { ObjectDecorators } from "../src/decorators";
 import { ObjectUtils } from "../src/ObjectUtils";
 import { ValidationUtils } from "../src/ValidationUtils";
 const { Nullable, Validator } = ObjectDecorators;
-const uuid = require("uuid");
+import { v4 as uuidV4 } from "uuid";
 import { describe, it, expect } from "vitest";
 
 class TestValidationClass {
     @Validator(ValidationUtils.checkUUID)
-    public uid: string = uuid.v4();
+    public uid: string = uuidV4();
 
     @Validator(ValidationUtils.checkName)
     public name: string = "username";
@@ -46,7 +46,7 @@ describe("ObjectUtils Tests", () => {
         } catch (err: any) {
             expect(err.message).toBe("Property uid is invalid. Value is not a UUID.");
         }
-        testObj.uid = uuid.v4();
+        testObj.uid = uuidV4();
         testObj.date = undefined;
         ObjectUtils.validate(testObj);
     });
@@ -54,7 +54,7 @@ describe("ObjectUtils Tests", () => {
     it("Can validate delta object.", () => {
         ObjectUtils.validate(
             {
-                uid: uuid.v4(),
+                uid: uuidV4(),
                 date: new Date(),
                 semver: "1.0.0",
             },
@@ -63,7 +63,7 @@ describe("ObjectUtils Tests", () => {
         try {
             ObjectUtils.validate(
                 {
-                    udi: uuid.v4(),
+                    udi: uuidV4(),
                     semver: "",
                 },
                 TestValidationClass,

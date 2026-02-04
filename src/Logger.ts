@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-const winston = require("winston");
+import winston from "winston";
 const { format, transports } = winston;
 const { combine, timestamp, printf } = format;
 const logFormat = printf((info: any) => {

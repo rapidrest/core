@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import { clearInterval } from "timers";
 import { ThreadWorker } from "../src/threads/ThreadWorker.js";
-const { parentPort } = require("worker_threads");
+import { parentPort } from "worker_threads";
 
 export default class TestThreadWorker extends ThreadWorker {
     private interval: NodeJS.Timeout | null = null;

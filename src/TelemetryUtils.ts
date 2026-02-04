@@ -2,7 +2,7 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import axios, { AxiosResponse } from "axios";
-import * as uuid from "uuid";
+import { v4 as uuidV4 } from "uuid";
 import { JWTUtils } from "./JWTUtils.js";
 
 /**
@@ -52,7 +52,7 @@ export class Event implements NewEvent {
     public readonly userId: string;
 
     constructor(config: any, userId: string, data: NewEvent) {
-        this.uid = uuid.v4();
+        this.uid = uuidV4();
         this.environment = process.env.NODE_ENV ? process.env.NODE_ENV : "prod";
         const serviceName: string = config.get("service_name");
         this.origin = serviceName ? `${serviceName}:${config.get("version")}` : "unknown";

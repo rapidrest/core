@@ -5,7 +5,7 @@ import { Logger } from "../src/Logger.js";
 import { ThreadPool } from "../src/threads/index.js";
 import { sleep } from "../src/sleep.js";
 import path from "path";
-const os = require("os");
+import os from "os";
 const logger = Logger();
 import { describe, it, expect } from "vitest";
 

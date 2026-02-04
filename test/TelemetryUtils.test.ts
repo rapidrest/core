@@ -5,10 +5,10 @@ import config from "./config.js";
 import { EventUtils, Event } from "../src/TelemetryUtils.js";
 import { JWTUtils } from "../src/JWTUtils.js";
 import nock from "nock";
-import * as uuid from "uuid";
+import { v4 as uuidV4 } from "uuid";
 import { describe, it, expect, beforeEach } from "vitest";
 
-const userUid = uuid.v4();
+const userUid = uuidV4();
 const authToken = JWTUtils.createToken(config.get("auth"), { uid: userUid, name: "test", roles: [] });
 
 describe("TelemetryUtils Tests.", () => {
@@ -46,7 +46,7 @@ describe("TelemetryUtils Tests.", () => {
     });
 
     it("Can record provided event.", async () => {
-        const otherUid: string = uuid.v4();
+        const otherUid: string = uuidV4();
         EventUtils.init(config, undefined, authToken);
 
         const data: any = {
@@ -76,7 +76,7 @@ describe("TelemetryUtils Tests.", () => {
     });
 
     it("Can record event without type argument.", async () => {
-        const otherUid: string = uuid.v4();
+        const otherUid: string = uuidV4();
         EventUtils.init(config, undefined, authToken);
 
         const data: any = {
@@ -107,7 +107,7 @@ describe("TelemetryUtils Tests.", () => {
     });
 
     it("Can't record event without initializing", async () => {
-        const otherUid: string = uuid.v4();
+        const otherUid: string = uuidV4();
         const data: any = {
             prop1: "a",
             prop2: 10,

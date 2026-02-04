@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-const { parentPort, workerData } = require("worker_threads");
-const Logger = require("./ThreadLogger");
+import { parentPort, workerData } from "worker_threads";
+import Logger from "./ThreadLogger";
 
 const logger = new Logger();
 

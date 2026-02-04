@@ -2,15 +2,15 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import { UserUtils } from "../src/UserUtils.js";
-import * as uuid from "uuid";
+import { v4 as uuidV4 } from "uuid";
 import { describe, it, expect } from "vitest";
 describe("UserUtils Tests.", () => {
-    const orgUid: string = uuid.v4();
+    const orgUid: string = uuidV4();
     const testUser = {
-        uid: uuid.v4(),
+        uid: uuidV4(),
         email: "test@gmail.com",
         roles: ["role1", "role2", `${orgUid}.role3`, `${orgUid}.role4`],
-        personas: [{ uid: uuid.v4() }, { uid: uuid.v4() }, { uid: uuid.v4() }],
+        personas: [{ uid: uuidV4() }, { uid: uuidV4() }, { uid: uuidV4() }],
         externalIds: [`facebook:89761181`, `twitter:567896132`],
         orgs: [orgUid],
     };
@@ -23,13 +23,13 @@ describe("UserUtils Tests.", () => {
 
     it("Can check for single organization.", () => {
         expect(UserUtils.hasOrganization(testUser, orgUid)).toBe(true);
-        expect(UserUtils.hasOrganization(testUser, uuid.v4())).toBe(false);
+        expect(UserUtils.hasOrganization(testUser, uuidV4())).toBe(false);
     });
 
     it("Can check for multiple organizations.", () => {
-        expect(UserUtils.hasOrganizations(testUser, [orgUid, uuid.v4()])).toBe(true);
+        expect(UserUtils.hasOrganizations(testUser, [orgUid, uuidV4()])).toBe(true);
         expect(UserUtils.hasOrganizations(testUser, [])).toBe(false);
-        expect(UserUtils.hasOrganizations(testUser, [uuid.v4(), uuid.v4()])).toBe(false);
+        expect(UserUtils.hasOrganizations(testUser, [uuidV4(), uuidV4()])).toBe(false);
     });
 
     it("Can check for single role.", () => {
@@ -71,13 +71,13 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasPersona(testUser, testUser.personas[0].uid)).toBe(true);
         expect(UserUtils.hasPersona(testUser, testUser.personas[1].uid)).toBe(true);
         expect(UserUtils.hasPersona(testUser, testUser.personas[2].uid)).toBe(true);
-        expect(UserUtils.hasPersona(testUser, uuid.v4())).toBe(false);
+        expect(UserUtils.hasPersona(testUser, uuidV4())).toBe(false);
     });
 
     it("Can check for multiple personas.", () => {
         const personaUids: string[] = [testUser.personas[0].uid, testUser.personas[1].uid];
         expect(UserUtils.hasPersonas(testUser, personaUids)).toBe(true);
-        expect(UserUtils.hasPersonas(testUser, [uuid.v4()])).toBe(false);
-        expect(UserUtils.hasPersonas(testUser, [uuid.v4(), uuid.v4(), uuid.v4()])).toBe(false);
+        expect(UserUtils.hasPersonas(testUser, [uuidV4()])).toBe(false);
+        expect(UserUtils.hasPersonas(testUser, [uuidV4(), uuidV4(), uuidV4()])).toBe(false);
     });
 });

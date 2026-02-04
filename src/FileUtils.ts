@@ -7,9 +7,8 @@ import path from "path";
 import { StringUtils } from "./StringUtils.js";
 import { mkdirp } from "mkdirp";
 import { Logger } from "./Logger.js";
-
+import { createInterface } from "readline";
 const logger = Logger();
-const readline = require("readline");
 
 /**
  * Utility functions for working with files.
@@ -47,16 +46,16 @@ const readline = require("readline");
             let invalidResponse = false;
             while (invalidResponse) {
                 let response: string = await new Promise<string>((resolve, reject) => {
-                    try {
-                        readline(
-                            "Overwrite existing file: " + outPath + "? [Y]es, [N]o, [M]erge: ",
-                            (answer: string) => {
-                                resolve(answer);
-                            }
-                        );
-                    } catch (err) {
-                        reject(err);
-                    }
+                    const rl = createInterface({
+                        input: process.stdin,
+                        output: process.stdout
+                    });
+                    rl.question("Overwrite existing file: " + outPath + "? [Y]es, [N]o, [M]erge: ",
+                        (answer: string) => {
+                            rl.close();
+                            resolve(answer);
+                        }
+                    );
                 });
                 response = response.toLocaleLowerCase();
 

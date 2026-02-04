@@ -9,7 +9,7 @@ import { CircularClassA } from "./factory/CircularClassA.js";
 import { CircularClassB } from "./factory/CircularClassB.js";
 import { ClassC } from "./factory/ClassC.js";
 import { ClassD } from "./factory/ClassD.js";
-const uuid = require("uuid");
+import { v4 as uuidV4 } from "uuid";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 class TestClassA {
     @Destroy
@@ -146,7 +146,7 @@ describe("ObjectFactory Tests", () => {
         expect(instance.arg2).toBe(1);
 
         const instance2: TestClassB = await factory.newInstance(TestClassB.name, {
-            name: uuid.v4(),
+            name: uuidV4(),
             initialize: true,
             args: ["world", 100],
         });
