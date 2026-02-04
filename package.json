@@ -1,6 +1,6 @@
 {
     "name": "@rapidrest/core",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "A collection of common utilities and core functionality for rapidly building RESTful applications.",
     "repository": "https://github.com/rapidrest/core.git",
     "author": "RapidREST <rapidrests@gmail.com>",
