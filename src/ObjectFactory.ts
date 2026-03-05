@@ -117,7 +117,7 @@ export class ObjectFactory {
      * Scans the given object for any properties with the `@Inject` decorator and assigns the correct values.
      * @param obj The object to initialize with injected defaults
      */
-    public async initialize<T>(obj: any): Promise<T> {
+    public initialize<T>(obj: any): T | Promise<T> {
         let proto = Object.getPrototypeOf(obj);
         while (proto) {
             // Search for each type of injectable property
@@ -154,11 +154,15 @@ export class ObjectFactory {
                     // First register the type just in case it hasn't been done yet
                     this.register(injectObject.type);
                     // Now retrieve the instance for the given name
-                    const instance: any = await this.newInstance(
-                        injectObject.type,
-                        injectObject.options
-                    );
-                    obj[member] = instance;
+                    const instance: any = this.newInstance(injectObject.type, injectObject.options);
+                    if (instance instanceof Promise) {
+                        // Wait for the final value to resolve before setting assigning
+                        instance.then((val) => {
+                            obj[member] = val;
+                        });
+                    } else {
+                        obj[member] = instance;
+                    }
                 }
             }
 
@@ -166,15 +170,30 @@ export class ObjectFactory {
         }
 
         // Call any @Init functions
+        const promises: Promise<void>[] = [];
         const initFuncs: Function[] = this.getInitMethods(obj);
         for (const func of initFuncs) {
             const result: any = func.bind(obj)();
             if (result instanceof Promise) {
-                await result;
+                promises.push(result);
             }
         }
 
-        return obj;
+        if (promises.length > 0) {
+            // Create a wrapper that waits for all init promises to finish before returning
+            return new Promise(async (resolve, reject) => {
+                try {
+                    for (const promise of promises) {
+                        await promise;
+                    }
+                } catch (err) {
+                    reject(err);
+                }
+                resolve(obj);
+            });
+        } else {
+            return obj;
+        }
     }
 
     /**
