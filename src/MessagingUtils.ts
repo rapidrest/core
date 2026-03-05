@@ -3,6 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import handlebars from "handlebars";
 import { Config, Init, Logger } from "./decorators/ObjectDecorators.js";
+import fs from "fs";
 
 export interface OriginSettings {
     email: string;
@@ -20,12 +21,16 @@ export type TemplateMap = Omit<TemplateMapBase, "from"> & {
 export interface Template {
     // Indicates if the template is enabled
     enabled: boolean;
+    // Indicates if the template has been loaded.
+    loaded?: boolean;
     // A map of additional options to send with e-mails.
     email_options?: any;
     // The subject line to use for e-mails and other similar messages
     subject?: string;
     // The contents of messages to send via e-mail (HTML).
     html?: string;
+    // The path to a file with the contents of messages to send via e-mail (HTML).
+    htmlPath?: string;
     // The name of the channel to send Slack messages to.
     slack_channel?: string;
     // The contents of messages to send via Slack.
@@ -36,6 +41,8 @@ export interface Template {
     sms_options?: any;
     // The contents of messages to send via e-mail.
     text?: string;
+    // The path to a file with the contents of messages to send via e-mail.
+    textPath?: string;
 }
 
 export interface SlackConfig {
@@ -74,7 +81,7 @@ export class MessagingUtils {
     private twilio?: any;
     @Config("twilio", null)
     private twilioConfig: any = null;
-    @Config("message_templates", {})
+    @Config("templates", {})
     private templates: TemplateMap = {} as any;
     @Logger
     private logger?: any;
@@ -97,7 +104,6 @@ export class MessagingUtils {
                         signingSecret: slackConfig.signingSecret,
                     });
                     this.slackApps.push(app);
-
                 }
             } catch (error) {
                 this.logger?.error("Unable to setup slack notifications");
@@ -140,6 +146,35 @@ export class MessagingUtils {
     }
 
     /**
+     * Loads the template with the given name and returns its contents as a string.
+     * @param name The name of the template to load.
+     */
+    public loadTemplate(name: string): Template {
+        if (!this.templates[name]) {
+            throw new Error(`No template found with name ${name}`);
+        }
+
+        const tplConfig: Template = this.templates[name];
+        if (tplConfig.loaded) {
+            return tplConfig;
+        }
+
+        // Check if a path is specified for the HTML template. If so load it.
+        if (tplConfig.htmlPath && fs.existsSync(tplConfig.htmlPath)) {
+            tplConfig.html = fs.readFileSync(tplConfig.htmlPath, { encoding: "utf-8" });
+        }
+
+        // Check if a path is specified for the text template. If so load it.
+        if (tplConfig.textPath && fs.existsSync(tplConfig.textPath)) {
+            tplConfig.text = fs.readFileSync(tplConfig.textPath, { encoding: "utf-8" });
+        }
+
+        tplConfig.loaded = true;
+
+        return tplConfig;
+    }
+
+    /**
      * Sends an email using the given template name and variables.
      * @param templateName The name of the email template to send.
      * @param templateVars The map of variables to inject into the template.
@@ -150,11 +185,8 @@ export class MessagingUtils {
         if (!this.smtpConfig) {
             throw new Error("E-mail is not configured.");
         }
-        if (!this.templates[templateName]) {
-            throw new Error(`No template found with name ${templateName}`);
-        }
 
-        const tplConfig: Template = this.templates[templateName];
+        const tplConfig: Template = this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.subject) {
             return undefined;
         }
@@ -205,11 +237,8 @@ export class MessagingUtils {
         if (this.slackApps.length === 0) {
             throw new Error("Slack is not configured.");
         }
-        if (!this.templates[templateName]) {
-            throw new Error(`No template found with name ${templateName}`);
-        }
 
-        const tplConfig: Template = this.templates[templateName];
+        const tplConfig: Template = this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.slack_channel || !tplConfig.slack_text) {
             return undefined;
         }
@@ -242,11 +271,8 @@ export class MessagingUtils {
         if (!this.twilio) {
             throw new Error("Twilio is not configured.");
         }
-        if (!this.templates[templateName]) {
-            throw new Error(`No template found with name ${templateName}`);
-        }
 
-        const tplConfig: Template = this.templates[templateName];
+        const tplConfig: Template = this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.sms) {
             return undefined;
         }

@@ -29,24 +29,28 @@ describe("MessagingUtils Tests.", () => {
 
     beforeEach(async () => {
         configuration = {
-            slack: [{
-                token: "test",
-                signingSecret: "test-secret"
-            }],
-            smtp_config: [{
-                host: "test"
-            }],
-            message_templates: {
+            slack: [
+                {
+                    token: "test",
+                    signingSecret: "test-secret",
+                },
+            ],
+            smtp_config: [
+                {
+                    host: "test",
+                },
+            ],
+            templates: {
                 from: {
-                    email: "mail"
+                    email: "mail",
                 },
                 test: {
                     enabled: true,
                     subject: "Alert",
                     slack_channel: "test",
-                    slack_text: "Alert"
-                }
-            }
+                    slack_text: "Alert",
+                },
+            },
         };
     });
     it("Can send slack.", async () => {
@@ -71,7 +75,7 @@ describe("MessagingUtils Tests.", () => {
 
     it("Cannot send slack, missing template.", async () => {
         const config = (await import("./config.js")).default;
-        delete configuration.message_templates;
+        delete configuration.templates;
         config.overrides(configuration);
         const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
         await expect(messagingUtils.sendSlack("test", {})).rejects.toThrow("No template found with name test");
@@ -80,7 +84,7 @@ describe("MessagingUtils Tests.", () => {
 
     it("Cannot send slack, template not enabled.", async () => {
         const config = (await import("./config.js")).default;
-        configuration.message_templates.test.enabled = false;
+        configuration.templates.test.enabled = false;
         config.overrides(configuration);
         const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
         expect(await messagingUtils.sendSlack("test", {})).not.toBeDefined();
@@ -105,7 +109,7 @@ describe("MessagingUtils Tests.", () => {
 
     it("Cannot send email, missing template.", async () => {
         const config = (await import("./config.js")).default;
-        delete configuration.message_templates;
+        delete configuration.templates;
         config.overrides(configuration);
 
         const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
@@ -114,7 +118,7 @@ describe("MessagingUtils Tests.", () => {
 
     it("Cannot send email, missing from.", async () => {
         const config = (await import("./config.js")).default;
-        delete configuration.message_templates.from;
+        delete configuration.templates.from;
         config.overrides(configuration);
 
         const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
@@ -123,7 +127,7 @@ describe("MessagingUtils Tests.", () => {
 
     it("Cannot send email, template not enabled.", async () => {
         const config = (await import("./config.js")).default;
-        configuration.message_templates.test.enabled = false;
+        configuration.templates.test.enabled = false;
         config.overrides(configuration);
         const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
         expect(await messagingUtils.sendEmail("test", {})).not.toBeDefined();
