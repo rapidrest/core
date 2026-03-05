@@ -159,6 +159,8 @@ export class ObjectFactory {
                         // Wait for the final value to resolve before setting assigning
                         instance.then((val) => {
                             obj[member] = val;
+                        }).catch((err) => {
+                            this.logger.error(`Failed to instantiate dependency. Type=${injectObject.type}, Parent=${obj._fqn}, Member=${member}`);
                         });
                     } else {
                         obj[member] = instance;
