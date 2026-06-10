@@ -161,6 +161,7 @@ export class ObjectFactory {
                             obj[member] = val;
                         }).catch((err) => {
                             this.logger.error(`Failed to instantiate dependency. Type=${injectObject.type}, Parent=${obj._fqn}, Member=${member}`);
+                            this.logger.debug(err);
                         });
                     } else {
                         obj[member] = instance;
