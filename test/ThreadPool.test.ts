@@ -5,9 +5,12 @@ import { Logger } from "../src/Logger.js";
 import { ThreadPool } from "../src/threads/index.js";
 import { sleep } from "../src/sleep.js";
 import path from "path";
+import { fileURLToPath } from "url";
 import os from "os";
-const logger = Logger();
 import { describe, it, expect } from "vitest";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const logger = Logger();
 
 describe.skip("ThreadPool Tests.", () => {
     it("Can create thread pool with custom entry and 1 thread.", async () => {

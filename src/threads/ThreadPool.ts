@@ -4,6 +4,9 @@
 import { Worker } from "worker_threads";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { WorkerMessage, WorkerMessageType } from "./ThreadWorker.js";
 import { sleep } from "../sleep.js";
 import { Config, Destroy, Logger } from "../decorators/ObjectDecorators.js";
@@ -110,6 +113,7 @@ export class ThreadPool {
         }
         const workerOptions: any = {
             workerData: options && options.worker ? options : options?.args,
+            execArgv: options.allowTs ? ["--loader", "ts-node/esm"] : [],
         };
         this.logger?.debug(`Creating thread worker: ${JSON.stringify(options)}`);
         const worker: Worker = new Worker(options.entry, workerOptions);

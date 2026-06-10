@@ -46,4 +46,4 @@ class ThreadLogger {
     }
 }
 
-module.exports = ThreadLogger;
+export default ThreadLogger;

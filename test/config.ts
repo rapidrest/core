@@ -1,12 +1,12 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-const conf = require("nconf")
-    .argv()
-    .env({
-        separator: "__",
-        parseValues: true,
-    });
+import nconf from "nconf";
+
+const conf = nconf.argv().env({
+    separator: "__",
+    parseValues: true,
+});
 
 conf.defaults({
     jobs: {

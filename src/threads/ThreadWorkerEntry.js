@@ -2,7 +2,7 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import { parentPort, workerData } from "worker_threads";
-import Logger from "./ThreadLogger";
+import Logger from "./ThreadLogger.js";
 
 const logger = new Logger();
 
@@ -14,16 +14,11 @@ if (workerData) {
     let worker = null;
 
     try {
-        // Load the TypeScript environment if enabled
-        if (workerData.allowTs) {
-            require("ts-node").register();
-        }
-
         // Import the worker class and initialize
         logger.debug(`Loading worker: ${workerData.worker}`);
-        const mod = require(workerData.worker);
+        const mod = await import(workerData.worker);
         if (typeof mod.default !== "function") {
-            throw new Error(`No default export found for worker: ${workerPath}`);
+            throw new Error(`No default export found for worker: ${workerData.worker}`);
         }
 
         logger.debug(`Initializing worker...`);
