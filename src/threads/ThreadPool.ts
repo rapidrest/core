@@ -6,7 +6,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const _dirname = path.dirname(fileURLToPath(import.meta.url));
 import { WorkerMessage, WorkerMessageType } from "./ThreadWorker.js";
 import { sleep } from "../sleep.js";
 import { Config, Destroy, Logger } from "../decorators/ObjectDecorators.js";
@@ -109,7 +109,7 @@ export class ThreadPool {
 
     private createWorker(idx: number, options: WorkerOptions): Worker {
         if (!options.entry || !!options.worker) {
-            options.entry = path.join(__dirname, "ThreadWorkerEntry.js");
+            options.entry = path.join(_dirname, "ThreadWorkerEntry.js");
         }
         const workerOptions: any = {
             workerData: options && options.worker ? options : options?.args,

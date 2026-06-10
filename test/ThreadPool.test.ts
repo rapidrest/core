@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 import os from "os";
 import { describe, it, expect } from "vitest";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const _dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = Logger();
 
 describe.skip("ThreadPool Tests.", () => {
@@ -126,7 +126,7 @@ describe.skip("ThreadPool Tests.", () => {
             }
         });
 
-        await pool.start({ worker: path.join(__dirname, "TestThreadWorker.ts"), args: [0, 100] });
+        await pool.start({ worker: path.join(_dirname, "TestThreadWorker.ts"), args: [0, 100] });
         expect(started).toBeTruthy();
         expect(pool.size).toBe(1);
         await sleep(1000);
@@ -173,7 +173,7 @@ describe.skip("ThreadPool Tests.", () => {
                     break;
             }
         });
-        await pool.start({ worker: path.join(__dirname, "TestThreadWorker.ts"), args: [0, 100] });
+        await pool.start({ worker: path.join(_dirname, "TestThreadWorker.ts"), args: [0, 100] });
         expect(started).toBeTruthy();
         expect(pool.size).toBe(maxThreads);
         await sleep(1000);
