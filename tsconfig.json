@@ -5,10 +5,12 @@
         "moduleResolution": "nodenext",
 
         "strict": true,
+        "skipLibCheck": true,
         "sourceMap": true,
         "declaration": true,
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
+        "rootDir": "src",
         "declarationDir": "dist/types",
         "outDir": "dist/lib",
         "typeRoots": ["node_modules/@types"]
