@@ -66,18 +66,4 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasRoles(testUser, ["role3", "role5"], orgUid)).toBe(true);
         expect(UserUtils.hasRoles(testUser, ["role4", "role5"], orgUid)).toBe(true);
     });
-
-    it("Can check for single persona.", () => {
-        expect(UserUtils.hasPersona(testUser, testUser.personas[0].uid)).toBe(true);
-        expect(UserUtils.hasPersona(testUser, testUser.personas[1].uid)).toBe(true);
-        expect(UserUtils.hasPersona(testUser, testUser.personas[2].uid)).toBe(true);
-        expect(UserUtils.hasPersona(testUser, uuidV4())).toBe(false);
-    });
-
-    it("Can check for multiple personas.", () => {
-        const personaUids: string[] = [testUser.personas[0].uid, testUser.personas[1].uid];
-        expect(UserUtils.hasPersonas(testUser, personaUids)).toBe(true);
-        expect(UserUtils.hasPersonas(testUser, [uuidV4()])).toBe(false);
-        expect(UserUtils.hasPersonas(testUser, [uuidV4(), uuidV4(), uuidV4()])).toBe(false);
-    });
 });

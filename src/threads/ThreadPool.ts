@@ -174,7 +174,6 @@ export class ThreadPool {
     /**
      * Initializes the thread pool with the initial worker threads and begins execution.
      *
-     * @param entry The path of the entry create a worker thread from. Default is `ThreadWorkerEntry.js`.
      * @param options The options to use when creating the worker thread.
      * @param num The number of initial threads to create, cannot be greater than max. Default is `max`.
      */
@@ -217,7 +216,7 @@ export class ThreadPool {
                 });
                 this.workers[i] = worker;
             }
-            this.logger?.debug(`Created ${this.workers.length} worker(s)`)
+            this.logger?.debug(`Created ${this.workers.length} worker(s)`);
         });
     }
 

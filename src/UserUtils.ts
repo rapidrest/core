@@ -51,44 +51,8 @@ export class UserUtils {
     }
 
     /**
-     * Returns `true` if the given user object contains a `Persona` object with the specified uid, otherwise returns `false`.
-     * @param user The user object to inspect.
-     * @param personaUid The universally unique identifier of the persona to search for.
-     */
-    public static hasPersona(user: any, personaUid?: string): boolean {
-        if (user && user.personas && Array.isArray(user.personas) && personaUid) {
-            for (const persona of user.personas) {
-                if (persona.uid === personaUid) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Returns `true` if the given user object contains a `Persona` object matching one of the uids in the specified list, otherwise returns `false`.
-     * @param user The user object to inspect.
-     * @param personaUid The list of universally unique identifiers to search for.
-     */
-    public static hasPersonas(user: any, personaUids?: string[]): boolean {
-        if (user && user.personas && Array.isArray(user.personas) && Array.isArray(personaUids)) {
-            for (const personaUid of personaUids) {
-                for (const persona of user.personas) {
-                    if (persona.uid === personaUid) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * Returns the unique identifier of the specified type associated with the given user.
-     * 
+     *
      * @param user The user to retrieve the external id from.
      * @param type The type of external provider to retrieve.
      * @returns The unique id of the external provider for the given type if found, otherwise `undefined`.

@@ -16,9 +16,7 @@ export function Destroy(target: any, propertyKey: string) {
  * if no object has been created yet.
  * @param type The fully qualified name or type of the class to instantiate. If a type is given it's class name will be inferred
  * via the constructor name.
- * @param name The unique name to give the class instance. Set to `undefined` if you wish to force a new object is created.
- * @param initialize Set to `true` to initialize the object after creation, otherwise set to `false`. Default is `true`.
- * @param args The set of constructor arguments to use during construction
+ * @param options The set of options to use when creating new instances of the injected class type.
  */
 export function Inject(type: any, options?: InstanceOptions) {
     return function (target: any, propertyKey: string | symbol) {
@@ -88,8 +86,6 @@ export function Logger(target: any, propertyKey: string | symbol) {
 
 /**
  * Apply this to a property to indicate that the value can be `null` or `undefined.`
- * 
- * @param nullable Set to `true` to indicate that the property value can be `null`, otherwise set to `false`. Default is `false`.
  */
 export function Nullable(target: any, propertyKey: string | symbol) {
     Reflect.defineMetadata("rrst:nullable", true, target, propertyKey);
@@ -97,7 +93,7 @@ export function Nullable(target: any, propertyKey: string | symbol) {
 
 /**
  * A function used to validate a property value.
- * 
+ *
  * @param value The value to validate.
  * @returns The validated value to assign to the property.
  * @throws An exception if the value cannot be validated.
@@ -106,7 +102,7 @@ export type ValidatorFunction = (value: any) => any;
 
 /**
  * Apply this to a property to specify the function that will be used to perform validation of the value.
- * 
+ *
  * @param func The validation function to use for the given property.
  */
 export function Validator(func: ValidatorFunction) {

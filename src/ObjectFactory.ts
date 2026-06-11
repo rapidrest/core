@@ -9,8 +9,11 @@ import { v4 as uuidV4 } from "uuid";
  * The set of options to use when creating new instances of objects.
  */
 export interface InstanceOptions {
+    /** The list of arguments to pass to the class constructor. */
     args?: any[];
+    /** The unique name of the object instance. */
     name?: string;
+    /** Set to `true` to perform initialization of the object after creation, otherwise set to `false`. Default is `true`. */
     initialize?: boolean;
 }
 
@@ -157,12 +160,16 @@ export class ObjectFactory {
                     const instance: any = this.newInstance(injectObject.type, injectObject.options);
                     if (instance instanceof Promise) {
                         // Wait for the final value to resolve before setting assigning
-                        instance.then((val) => {
-                            obj[member] = val;
-                        }).catch((err) => {
-                            this.logger.error(`Failed to instantiate dependency. Type=${injectObject.type}, Parent=${obj._fqn}, Member=${member}`);
-                            this.logger.debug(err);
-                        });
+                        instance
+                            .then((val) => {
+                                obj[member] = val;
+                            })
+                            .catch((err) => {
+                                this.logger.error(
+                                    `Failed to instantiate dependency. Type=${injectObject.type}, Parent=${obj._fqn}, Member=${member}`,
+                                );
+                                this.logger.debug(err);
+                            });
                     } else {
                         obj[member] = instance;
                     }
@@ -280,9 +287,7 @@ export class ObjectFactory {
      *
      * @param type The fully qualified name or type of the class to instantiate. If a type is given it's class name will be inferred
      * via the constructor name.
-     * @param name The unique name to give the class instance. Set to `undefined` if you wish to force a new object is created.
-     * @param initialize Set to `true` to initialize the object after creation, otherwise set to `false`. Default is `true`.
-     * @param args The set of constructor arguments to use during construction
+     * @param options The options to use when instantiating the new class object.
      */
     public newInstance<T>(type: any, options?: InstanceOptions): T | Promise<T> {
         let name: string = options?.name || uuidV4();
