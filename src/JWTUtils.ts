@@ -232,7 +232,7 @@ export class JWTUtils {
                 const iv: Buffer = Buffer.from(pwOtions.iv);
                 const [saltB64, profile] = payload.profile.split(":");
                 const salt = Buffer.from(saltB64, "base64");
-                const key: Buffer = crypto.scryptSync(pwOtions.password as string, salt, 24);
+                const key: Buffer = crypto.scryptSync(pwOtions.password, salt, 24);
                 const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
 
                 let decrypted: string = decipher.update(profile, "base64", "utf8");

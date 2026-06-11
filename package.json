@@ -11,7 +11,7 @@
         "Thomas Buscaglia"
     ],
     "scripts": {
-        "build": "rimraf dist && tsc",
+        "build": "yarn lint && rimraf dist && tsc",
         "deploy-docs": "ts-node tools/gh-pages-publish",
         "docs": "typedoc --plugin typedoc-plugin-markdown --out docs/reference src",
         "lint": "eslint ./src ./test",
