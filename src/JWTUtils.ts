@@ -167,19 +167,20 @@ export class JWTUtils {
         // Encrypt the profile if desired
         if (config.payload && config.payload.encrypt) {
             const payloadOptions: any = config.payload;
-            if (payloadOptions.private_key) {
+            if (payloadOptions.public_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const encrypted: Buffer = crypto.privateEncrypt(keyOptions.private_key, Buffer.from(payload.profile));
+                const encrypted: Buffer = crypto.publicEncrypt(keyOptions.public_key, Buffer.from(payload.profile));
                 payload.profile = encrypted.toString("base64");
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
-                const key: Buffer = crypto.scryptSync(pwOtions.password, "salt", 24);
+                const salt = crypto.randomBytes(16);
+                const key: Buffer = crypto.scryptSync(pwOtions.password, salt, 24);
                 const cipher = crypto.createCipheriv(pwOtions.algorithm, key, iv);
 
                 let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
                 encrypted += cipher.final("base64");
-                payload.profile = encrypted;
+                payload.profile = salt.toString("base64") + ":" + encrypted;
             }
             payload.encryption = true;
         }
@@ -228,11 +229,13 @@ export class JWTUtils {
                 payload.profile = decrypted.toString("utf8");
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
-                const iv: Buffer = Buffer.from(payloadOptions.iv);
-                const key: Buffer = crypto.scryptSync(payloadOptions.password as string, "salt", 24);
-                const decipher = crypto.createDecipheriv(payloadOptions.algorithm, key, iv);
+                const iv: Buffer = Buffer.from(pwOtions.iv);
+                const [saltB64, profile] = payload.profile.split(":");
+                const salt = Buffer.from(saltB64, "base64");
+                const key: Buffer = crypto.scryptSync(pwOtions.password as string, salt, 24);
+                const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
 
-                let decrypted: string = decipher.update(payload.profile, "base64", "utf8");
+                let decrypted: string = decipher.update(profile, "base64", "utf8");
                 decrypted += decipher.final("utf8");
                 payload.profile = decrypted;
             }
