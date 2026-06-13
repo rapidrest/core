@@ -86,6 +86,12 @@ export class MessagingUtils {
     @Logger
     private logger?: any;
 
+    /** Reusable nodemailer transporter created once in init(). */
+    private _transporter: any;
+
+    /** Cache of compiled Handlebars delegates keyed by "<templateName>:<field>". */
+    private _compiledTemplates: Map<string, handlebars.TemplateDelegate> = new Map();
+
     @Init
     public async init() {
         if (this.slackConfigs.length > 0) {
@@ -121,6 +127,8 @@ export class MessagingUtils {
                 if (!this.smtpConfig.host) {
                     throw new Error("No host specified in SMTP configuration.");
                 }
+
+                this._transporter = nodemailer.createTransport(this.smtpConfig);
             } catch (error) {
                 this.logger?.error("Unable to setup email notifications");
                 this.logger?.debug(error);
@@ -171,6 +179,13 @@ export class MessagingUtils {
 
         tplConfig.loaded = true;
 
+        // Compile and cache all Handlebars delegates on first load
+        if (tplConfig.text) this._compiledTemplates.set(`${name}:text`, handlebars.compile(tplConfig.text));
+        if (tplConfig.html) this._compiledTemplates.set(`${name}:html`, handlebars.compile(tplConfig.html));
+        if (tplConfig.subject) this._compiledTemplates.set(`${name}:subject`, handlebars.compile(tplConfig.subject));
+        if (tplConfig.sms) this._compiledTemplates.set(`${name}:sms`, handlebars.compile(tplConfig.sms));
+        if (tplConfig.slack_text) this._compiledTemplates.set(`${name}:slack_text`, handlebars.compile(tplConfig.slack_text));
+
         return tplConfig;
     }
 
@@ -191,31 +206,23 @@ export class MessagingUtils {
             return undefined;
         }
 
-        // Create the plain text template
-        let message: string | null = null;
-        if (tplConfig.text) {
-            const template: handlebars.TemplateDelegate = handlebars.compile(tplConfig.text);
-            message = template(templateVars);
-        }
+        // Render using cached compiled delegates
+        const message: string | null = this._compiledTemplates.get(`${templateName}:text`)?.(templateVars) ?? null;
+        const htmlMessage: string | null = this._compiledTemplates.get(`${templateName}:html`)?.(templateVars) ?? null;
+        const subject: string = this._compiledTemplates.get(`${templateName}:subject`)!(templateVars);
 
-        // Create the HTML template
-        let htmlMessage: string | null = null;
-        if (tplConfig.html) {
-            const template: handlebars.TemplateDelegate = handlebars.compile(tplConfig.html);
-            htmlMessage = template(templateVars);
+        // Lazily create the transporter if init() did not succeed in creating it
+        if (!this._transporter) {
+            const nodemailer: any = await import("nodemailer");
+            this._transporter = nodemailer.createTransport(this.smtpConfig);
         }
-
-        const subjectTemplate: handlebars.TemplateDelegate = handlebars.compile(tplConfig.subject);
-        const subject: string = subjectTemplate(templateVars);
 
         // Send the e-mail to the user
-        const nodemailer: any = await import("nodemailer");
-        const transporter = nodemailer.createTransport(this.smtpConfig);
         if (!this.templates?.from?.email) {
             this.logger?.warn("Unable to send email missing from.email in message template");
             return undefined;
         }
-        const result: any = await transporter.sendMail({
+        const result: any = await this._transporter.sendMail({
             from: this.templates.from.email,
             ...tplConfig.email_options,
             ...options,
@@ -243,9 +250,8 @@ export class MessagingUtils {
             return undefined;
         }
 
-        // Create the sms template
-        const template: handlebars.TemplateDelegate = handlebars.compile(tplConfig.slack_text);
-        const message: string = template(templateVars);
+        // Render using cached compiled delegate
+        const message: string = this._compiledTemplates.get(`${templateName}:slack_text`)!(templateVars);
 
         const result: any[] = [];
         // Send the slack message to the desired channel
@@ -277,9 +283,8 @@ export class MessagingUtils {
             return undefined;
         }
 
-        // Create the sms template
-        const template: handlebars.TemplateDelegate = handlebars.compile(tplConfig.sms);
-        const message: string = template(templateVars);
+        // Render using cached compiled delegate
+        const message: string = this._compiledTemplates.get(`${templateName}:sms`)!(templateVars);
 
         // Send the message to the user
         const result: any = await this.twilio.messages.create({

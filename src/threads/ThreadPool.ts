@@ -136,8 +136,9 @@ export class ThreadPool {
 
             // Restart worker thread
             if (options?.restartOnExit && !this.shutdown) {
-                const worker: Worker = this.createWorker(idx, options);
-                this.workers[idx] = worker;
+                worker.removeAllListeners();
+                const newWorker: Worker = this.createWorker(idx, options);
+                this.workers[idx] = newWorker;
             }
         });
         worker.on("message", (msg: WorkerMessage) => {
@@ -265,14 +266,20 @@ export class ThreadPool {
      * @param msg The message to send the next available worker thread.
      */
     public send(msg: any): void {
-        const startIdx: number = (this.lastThread + 1) % this.workers.length;
-        let worker: Worker | undefined = undefined;
+        const len = this.workers.length;
+        if (len === 0) throw new Error("No workers in pool.");
+        const startIdx = (this.lastThread + 1) % len;
+        let idx = startIdx;
         do {
-            worker = this.workers[startIdx];
-            this.lastThread = startIdx;
-        } while (!worker);
-
-        worker.postMessage(msg);
+            const worker = this.workers[idx];
+            if (worker) {
+                worker.postMessage(msg);
+                this.lastThread = idx;
+                return;
+            }
+            idx = (idx + 1) % len;
+        } while (idx !== startIdx);
+        throw new Error("No available workers in the pool.");
     }
 
     /**

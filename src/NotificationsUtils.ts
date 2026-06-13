@@ -42,12 +42,14 @@ export class NotificationUtils {
      * @param {string} data The contents of the message to send to the room or user.
      */
     public sendMessage(uids: string | string[], type: string, action: string, data: any): void {
+        // Serialize once regardless of how many recipients
+        const payload = JSON.stringify({ type, action, data });
         if (Array.isArray(uids)) {
             for (const uid of uids) {
-                void this.redis?.publish(uid, JSON.stringify({ type, action, data }));
+                void this.redis?.publish(uid, payload);
             }
         } else {
-            void this.redis?.publish(uids, JSON.stringify({ type, action, data }));
+            void this.redis?.publish(uids, payload);
         }
     }
 }

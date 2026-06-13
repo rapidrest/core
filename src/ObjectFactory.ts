@@ -17,6 +17,15 @@ export interface InstanceOptions {
     initialize?: boolean;
 }
 
+/** Cached result of a full prototype-chain metadata scan for a given class constructor. */
+interface ClassMetadata {
+    destroyMethod?: string;
+    injectConfig: Array<{ member: string; path: string | boolean; configDefault: any }>;
+    injectLogger: string[];
+    injectObject: Array<{ member: string; type: any; options: any }>;
+    initMethods: string[];
+}
+
 /**
  * The `ObjectFactory` is a manager for creating objects based on registered
  * class types. This allows for the tracking of multiple instances of objects
@@ -37,11 +46,69 @@ export class ObjectFactory {
     /** The application logging utility. */
     protected logger: any;
 
+    /** Cache of prototype-chain metadata keyed by constructor function. WeakMap allows GC of dropped classes. */
+    private readonly _metadataCache: WeakMap<Function, ClassMetadata> = new WeakMap();
+
+    /** Secondary index: className → first registered instance key, for O(1) getInstance() fallback. */
+    private readonly _firstByClass: Map<string, string> = new Map();
+
     constructor(config?: any, logger?: any) {
         this.config = config;
         this.logger = logger ? logger : Logger();
         // Add ourself so it can be injected/retrieved
         this.instances.set(`${ObjectFactory.name}:default`, this);
+    }
+
+    /** Walks the prototype chain once for `obj` and caches the discovered decorator metadata on the constructor. */
+    private _getOrBuildMetadata(obj: any): ClassMetadata {
+        const ctor = obj.constructor as Function;
+        if (this._metadataCache.has(ctor)) {
+            return this._metadataCache.get(ctor)!;
+        }
+
+        const meta: ClassMetadata = {
+            injectConfig: [],
+            injectLogger: [],
+            injectObject: [],
+            initMethods: [],
+        };
+
+        let proto = Object.getPrototypeOf(obj);
+        while (proto) {
+            for (const member of Object.getOwnPropertyNames(proto)) {
+                if (!meta.destroyMethod) {
+                    const hasDestructor: boolean = Reflect.getMetadata("rrst:destructor", proto, member);
+                    if (hasDestructor) {
+                        meta.destroyMethod = member;
+                    }
+                }
+
+                const hasInit: boolean = Reflect.getMetadata("rrst:initialize", proto, member);
+                if (hasInit) {
+                    meta.initMethods.push(member);
+                }
+
+                const injectConfig: any = Reflect.getMetadata("rrst:injectConfig", proto, member);
+                if (injectConfig) {
+                    const configDefault: any = Reflect.getMetadata("rrst:injectConfigDefault", proto, member);
+                    meta.injectConfig.push({ member, path: injectConfig, configDefault });
+                }
+
+                const injectLogger: any = Reflect.getMetadata("rrst:injectLogger", proto, member);
+                if (injectLogger) {
+                    meta.injectLogger.push(member);
+                }
+
+                const injectObject: any = Reflect.getMetadata("rrst:injectObject", proto, member);
+                if (injectObject) {
+                    meta.injectObject.push({ member, type: injectObject.type, options: injectObject.options });
+                }
+            }
+            proto = Object.getPrototypeOf(proto);
+        }
+
+        this._metadataCache.set(ctor, meta);
+        return meta;
     }
 
     /**
@@ -67,28 +134,12 @@ export class ObjectFactory {
         // Go through each object and call its destructor, if available
         for (const obj of objs) {
             const name: string = obj.name ?? obj._name;
+            const meta = this._getOrBuildMetadata(obj);
 
-            let destroyFunc: Function | undefined = undefined;
-            let proto = Object.getPrototypeOf(obj);
-            while (proto) {
-                for (const member of Object.getOwnPropertyNames(proto)) {
-                    const hasDestructor: boolean = Reflect.getMetadata("rrst:destructor", proto, member);
-                    if (hasDestructor) {
-                        destroyFunc = obj[member];
-                        break;
-                    }
-                }
-
-                if (destroyFunc) {
-                    break;
-                }
-                proto = Object.getPrototypeOf(proto);
-            }
-
-            if (destroyFunc) {
+            if (meta.destroyMethod) {
                 try {
                     this.logger.debug("Destroying object: " + name);
-                    const boundFunc: Function = destroyFunc.bind(obj);
+                    const boundFunc: Function = (obj[meta.destroyMethod] as Function).bind(obj);
                     const result: any = boundFunc();
                     if (result instanceof Promise) {
                         await result;
@@ -106,6 +157,7 @@ export class ObjectFactory {
      */
     public clear(): void {
         this.instances.clear();
+        this._firstByClass.clear();
     }
 
     /**
@@ -121,69 +173,50 @@ export class ObjectFactory {
      * @param obj The object to initialize with injected defaults
      */
     public initialize<T>(obj: any): T | Promise<T> {
-        let proto = Object.getPrototypeOf(obj);
-        while (proto) {
-            // Search for each type of injectable property
-            for (const member of Object.getOwnPropertyNames(proto)) {
-                // Inject @Config
-                const injectConfig: any = Reflect.getMetadata("rrst:injectConfig", proto, member);
-                if (injectConfig) {
-                    const defaultValue: any = Reflect.getMetadata("rrst:injectConfigDefault", proto, member);
-                    // If the value is a string, then it must be a path to a specific variable desired
-                    if (typeof injectConfig === "string") {
-                        const value: any = this.config?.get(injectConfig);
-                        if (value !== undefined) {
-                            obj[member] = value;
-                        } else if (defaultValue !== undefined) {
-                            obj[member] = defaultValue;
-                        } else {
-                            throw new Error("No configuration variable is defined at path: " + injectConfig);
-                        }
-                    } else {
-                        // No specific variable is desired, inject the whole config object
-                        obj[member] = this.config;
-                    }
-                }
+        const meta = this._getOrBuildMetadata(obj);
 
-                // Inject @Logger
-                const injectLogger: any = Reflect.getMetadata("rrst:injectLogger", proto, member);
-                if (injectLogger) {
-                    obj[member] = this.logger;
+        for (const { member, path, configDefault } of meta.injectConfig) {
+            if (typeof path === "string") {
+                const value: any = this.config?.get(path);
+                if (value !== undefined) {
+                    obj[member] = value;
+                } else if (configDefault !== undefined) {
+                    obj[member] = configDefault;
+                } else {
+                    throw new Error("No configuration variable is defined at path: " + path);
                 }
-
-                // Inject @Inject
-                const injectObject: any = Reflect.getMetadata("rrst:injectObject", proto, member);
-                if (injectObject) {
-                    // First register the type just in case it hasn't been done yet
-                    this.register(injectObject.type);
-                    // Now retrieve the instance for the given name
-                    const instance: any = this.newInstance(injectObject.type, injectObject.options);
-                    if (instance instanceof Promise) {
-                        // Wait for the final value to resolve before setting assigning
-                        instance
-                            .then((val) => {
-                                obj[member] = val;
-                            })
-                            .catch((err) => {
-                                this.logger.error(
-                                    `Failed to instantiate dependency. Type=${injectObject.type}, Parent=${obj._fqn}, Member=${member}`,
-                                );
-                                this.logger.debug(err);
-                            });
-                    } else {
-                        obj[member] = instance;
-                    }
-                }
+            } else {
+                obj[member] = this.config;
             }
+        }
 
-            proto = Object.getPrototypeOf(proto);
+        for (const member of meta.injectLogger) {
+            obj[member] = this.logger;
+        }
+
+        for (const { member, type, options } of meta.injectObject) {
+            this.register(type);
+            const instance: any = this.newInstance(type, options);
+            if (instance instanceof Promise) {
+                instance
+                    .then((val) => {
+                        obj[member] = val;
+                    })
+                    .catch((err) => {
+                        this.logger.error(
+                            `Failed to instantiate dependency. Type=${type}, Parent=${obj._fqn}, Member=${member}`,
+                        );
+                        this.logger.debug(err);
+                    });
+            } else {
+                obj[member] = instance;
+            }
         }
 
         // Call any @Init functions
         const promises: Promise<void>[] = [];
-        const initFuncs: Function[] = this.getInitMethods(obj);
-        for (const func of initFuncs) {
-            const result: any = func.bind(obj)();
+        for (const methodName of meta.initMethods) {
+            const result: any = (obj[methodName] as Function).bind(obj)();
             if (result instanceof Promise) {
                 promises.push(result);
             }
@@ -267,13 +300,11 @@ export class ObjectFactory {
         // First search for the exact name or with `:default`
         let result: T = this.instances.get(search.includes(":") ? search : search + ":default");
         // If we didn't found a result and we weren't given an exact name to search, find the first
-        // instance of the class.
+        // instance of the class using the O(1) secondary index.
         if (!result && !search.includes(":")) {
-            for (const key of this.instances.keys()) {
-                if (key.startsWith(search + ":")) {
-                    result = this.instances.get(key);
-                    break;
-                }
+            const firstKey = this._firstByClass.get(search);
+            if (firstKey) {
+                result = this.instances.get(firstKey);
             }
         }
 
@@ -344,6 +375,11 @@ export class ObjectFactory {
             });
 
             this.instances.set(name, instance);
+
+            // Populate secondary index for O(1) getInstance() fallback
+            if (!this._firstByClass.has(className)) {
+                this._firstByClass.set(className, name);
+            }
         }
 
         // Now initialize the object with any injectable defaults. This must happen after we add the instance

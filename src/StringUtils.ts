@@ -46,19 +46,24 @@ export class StringUtils {
     public static findAndReplace(contents: string, variables: any): string {
         let output: string = contents;
 
+        // Pre-compile one regex per key (O(n)) rather than creating new RegExp inside nested loops (O(n²))
+        const regexCache = new Map<string, RegExp>();
+        for (const key in variables) {
+            regexCache.set(key, new RegExp("(\\{\\{" + key + "\\}\\})", "g"));
+        }
+
         // Go through all variables and perform replacement
-        for (let key in variables) {
+        for (const key in variables) {
             // Perform replacement on the variable value itself. This allows nested variable replacement.
             if (variables[key]) {
                 let value: string = variables[key] as string;
-                for (let key2 in variables) {
+                for (const key2 in variables) {
                     if (variables[key2]) {
-                        let value2 = variables[key2] as string;
-                        value = value.toString().replace(new RegExp("(\\{\\{" + key2 + "\\}\\})", "g"), value2);
+                        value = value.toString().replace(regexCache.get(key2)!, variables[key2] as string);
                     }
                 }
 
-                output = output.replace(new RegExp("(\\{\\{" + key + "\\}\\})", "g"), value);
+                output = output.replace(regexCache.get(key)!, value);
             }
         }
 
@@ -80,15 +85,14 @@ export class StringUtils {
      * @returns {string} The fully replaced contents of the string.
      */
     public static replaceAll(str: string, match: string | RegExp, prefix: string): string {
-        let result = str;
-
-        let matches = str.match(match);
-        while (matches) {
-            result = result.replace(matches[0], prefix + matches[1]);
-            matches = result.match(match);
-        }
-
-        return result;
+        // Build a single global regex and replace in one O(n) pass instead of looping with repeated .match()
+        const global =
+            typeof match === "string"
+                ? new RegExp(match, "g")
+                : match.global
+                  ? match
+                  : new RegExp(match.source, match.flags + "g");
+        return str.replace(global, (_full, capture) => prefix + capture);
     }
 
     /**

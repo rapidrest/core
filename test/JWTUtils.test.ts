@@ -87,67 +87,132 @@ X/RSNvpfoQMjvNFxa+qpRTfH4SFU2eOXBoGS7qrR2aRP7QAtuW2gbw==
         },
     };
 
-    it("Can create JWT token.", () => {
-        let token = JWTUtils.createToken(config, testUser);
+    it("Can create JWT token.", async () => {
+        let token = await JWTUtils.createToken(config, testUser);
         expect(token).toBeDefined();
         expect(() => {
             jwt.verify(token, config.secret, config.options);
         }).not.toThrow();
     });
 
-    it("Can create compressed JWT token.", () => {
-        let token = JWTUtils.createToken(compressConfig, testUser);
+    it("Can create compressed JWT token.", async () => {
+        let token = await JWTUtils.createToken(compressConfig, testUser);
         expect(token).toBeDefined();
         expect(() => {
             jwt.verify(token, config.secret, config.options);
         }).not.toThrow();
     });
 
-    it("Can create encrypted JWT token.", () => {
-        let token = JWTUtils.createToken(encryptConfig, testUser);
+    it("Can create encrypted JWT token.", async () => {
+        let token = await JWTUtils.createToken(encryptConfig, testUser);
         expect(token).toBeDefined();
         const payload: any = jwt.verify(token, encryptConfig.secret, encryptConfig.options);
         expect(payload).toBeDefined();
     });
 
-    it.skip("Can create encrypted JWT token with public/private keys.", () => {
-        let token = JWTUtils.createToken(encryptKeyConfig, testUser);
+    it.skip("Can create encrypted JWT token with public/private keys.", async () => {
+        let token = await JWTUtils.createToken(encryptKeyConfig, testUser);
         expect(token).toBeDefined();
         const payload: any = jwt.verify(token, encryptKeyConfig.secret, encryptKeyConfig.options);
         expect(payload).toBeDefined();
     });
 
-    it("Can decode JWT token.", () => {
-        const token = JWTUtils.createToken(config, testUser);
+    it("Can create JWT token. (sync)", () => {
+        let token = JWTUtils.createTokenSync(config, testUser);
+        expect(token).toBeDefined();
+        expect(() => {
+            jwt.verify(token, config.secret, config.options);
+        }).not.toThrow();
+    });
+
+    it("Can create compressed JWT token. (sync)", () => {
+        let token = JWTUtils.createTokenSync(compressConfig, testUser);
+        expect(token).toBeDefined();
+        expect(() => {
+            jwt.verify(token, config.secret, config.options);
+        }).not.toThrow();
+    });
+
+    it("Can create encrypted JWT token. (sync)", () => {
+        let token = JWTUtils.createTokenSync(encryptConfig, testUser);
+        expect(token).toBeDefined();
+        const payload: any = jwt.verify(token, encryptConfig.secret, encryptConfig.options);
+        expect(payload).toBeDefined();
+    });
+
+    it.skip("Can create encrypted JWT token with public/private keys. (sync)", () => {
+        let token = JWTUtils.createTokenSync(encryptKeyConfig, testUser);
+        expect(token).toBeDefined();
+        const payload: any = jwt.verify(token, encryptKeyConfig.secret, encryptKeyConfig.options);
+        expect(payload).toBeDefined();
+    });
+
+    it("Can decode JWT token.", async () => {
+        const token = await JWTUtils.createToken(config, testUser);
         expect(token).toBeDefined();
         jwt.verify(token, config.secret, config.options);
-        const payload: JWTPayload = JWTUtils.decodeToken(config, token);
+        const payload: JWTPayload = await JWTUtils.decodeToken(config, token);
         expect(payload.profile).toEqual(testUser);
     });
 
-    it("Can decode compressed JWT token.", () => {
-        const token = JWTUtils.createToken(compressConfig, testUser);
+    it("Can decode compressed JWT token.", async () => {
+        const token = await JWTUtils.createToken(compressConfig, testUser);
         expect(token).toBeDefined();
         jwt.verify(token, compressConfig.secret, compressConfig.options);
-        const payload: JWTPayload = JWTUtils.decodeToken(compressConfig, token);
+        const payload: JWTPayload = await JWTUtils.decodeToken(compressConfig, token);
         expect(payload.profile).toEqual(testUser);
         expect(payload.compression).toBe(JWTUtilsCompressionMethods.ZLIB);
     });
 
-    it("Can decode encrypted JWT token.", () => {
-        const token = JWTUtils.createToken(encryptConfig, testUser);
+    it("Can decode encrypted JWT token.", async () => {
+        const token = await JWTUtils.createToken(encryptConfig, testUser);
         expect(token).toBeDefined();
         jwt.verify(token, encryptConfig.secret, encryptConfig.options);
-        const payload: JWTPayload = JWTUtils.decodeToken(encryptConfig, token);
+        const payload: JWTPayload = await JWTUtils.decodeToken(encryptConfig, token);
         expect(payload.profile).toEqual(testUser);
         expect(payload.encryption).toBeTruthy();
     });
 
-    it.skip("Can decode encrypted JWT token with public/private keys.", () => {
-        const token = JWTUtils.createToken(encryptKeyConfig, testUser);
+    it.skip("Can decode encrypted JWT token with public/private keys.", async () => {
+        const token = await JWTUtils.createToken(encryptKeyConfig, testUser);
         expect(token).toBeDefined();
         jwt.verify(token, encryptKeyConfig.secret, encryptKeyConfig.options);
-        const payload: JWTPayload = JWTUtils.decodeToken(encryptKeyConfig, token);
+        const payload: JWTPayload = await JWTUtils.decodeToken(encryptKeyConfig, token);
+        expect(payload.profile).toEqual(testUser);
+        expect(payload.encryption).toBeTruthy();
+    });
+
+    it("Can decode JWT token. (sync)", () => {
+        const token = JWTUtils.createTokenSync(config, testUser);
+        expect(token).toBeDefined();
+        jwt.verify(token, config.secret, config.options);
+        const payload: JWTPayload = JWTUtils.decodeTokenSync(config, token);
+        expect(payload.profile).toEqual(testUser);
+    });
+
+    it("Can decode compressed JWT token. (sync)", () => {
+        const token = JWTUtils.createTokenSync(compressConfig, testUser);
+        expect(token).toBeDefined();
+        jwt.verify(token, compressConfig.secret, compressConfig.options);
+        const payload: JWTPayload = JWTUtils.decodeTokenSync(compressConfig, token);
+        expect(payload.profile).toEqual(testUser);
+        expect(payload.compression).toBe(JWTUtilsCompressionMethods.ZLIB);
+    });
+
+    it("Can decode encrypted JWT token. (sync)", () => {
+        const token = JWTUtils.createTokenSync(encryptConfig, testUser);
+        expect(token).toBeDefined();
+        jwt.verify(token, encryptConfig.secret, encryptConfig.options);
+        const payload: JWTPayload = JWTUtils.decodeTokenSync(encryptConfig, token);
+        expect(payload.profile).toEqual(testUser);
+        expect(payload.encryption).toBeTruthy();
+    });
+
+    it.skip("Can decode encrypted JWT token with public/private keys. (sync)", () => {
+        const token = JWTUtils.createTokenSync(encryptKeyConfig, testUser);
+        expect(token).toBeDefined();
+        jwt.verify(token, encryptKeyConfig.secret, encryptKeyConfig.options);
+        const payload: JWTPayload = JWTUtils.decodeTokenSync(encryptKeyConfig, token);
         expect(payload.profile).toEqual(testUser);
         expect(payload.encryption).toBeTruthy();
     });

@@ -6,10 +6,14 @@ import { EventUtils, Event } from "../src/TelemetryUtils.js";
 import { JWTUtils } from "../src/JWTUtils.js";
 import nock from "nock";
 import { v4 as uuidV4 } from "uuid";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
 const userUid = uuidV4();
-const authToken = JWTUtils.createToken(config.get("auth"), { uid: userUid, name: "test", roles: [] });
+let authToken: string;
+
+beforeAll(async () => {
+    authToken = await JWTUtils.createToken(config.get("auth"), { uid: userUid, name: "test", roles: [] });
+});
 
 describe("TelemetryUtils Tests.", () => {
     beforeEach(() => {
@@ -17,7 +21,7 @@ describe("TelemetryUtils Tests.", () => {
     });
 
     it("Can record event.", async () => {
-        EventUtils.init(config, undefined, authToken);
+        await EventUtils.init(config, undefined, authToken);
 
         const data: any = {
             prop1: "a",
@@ -47,7 +51,7 @@ describe("TelemetryUtils Tests.", () => {
 
     it("Can record provided event.", async () => {
         const otherUid: string = uuidV4();
-        EventUtils.init(config, undefined, authToken);
+        await EventUtils.init(config, undefined, authToken);
 
         const data: any = {
             prop1: "a",
@@ -77,7 +81,7 @@ describe("TelemetryUtils Tests.", () => {
 
     it("Can record event without type argument.", async () => {
         const otherUid: string = uuidV4();
-        EventUtils.init(config, undefined, authToken);
+        await EventUtils.init(config, undefined, authToken);
 
         const data: any = {
             prop1: "a",

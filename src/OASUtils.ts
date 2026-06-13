@@ -9,6 +9,11 @@ import YAML from "js-yaml";
 
 const logger = Logger();
 
+/** Cache of parsed spec objects keyed by file path or URL, to avoid repeated I/O and parsing. */
+const _specCache: Map<string, any> = new Map();
+
+const _urlRegex = /^https?:\/\/[a-zA-Z0-9]*\.?[a-z].*/;
+
 export class OASUtils {
     /**
      * Gets the datastore definition with the specified name.
@@ -97,9 +102,10 @@ export class OASUtils {
             throw new Error("Invalid specification. No schemas found.");
         }
 
-        // Perform a case-insensitive search for the schema
+        // Compile regex once before the loop; escape special chars to handle schema names with dots/brackets
+        const nameRegex = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
         for (const schemaName in spec.components.schemas) {
-            if (schemaName.match(new RegExp(name, 'i'))) {
+            if (nameRegex.test(schemaName)) {
                 return spec.components.schemas[schemaName];
             }
         }
@@ -171,6 +177,10 @@ export class OASUtils {
      * @returns {Promise<any>} A promise whose result will be the loaded OpenAPI Specification as an object.
      */
     public static async loadSpec(file: string): Promise<any> {
+        if (_specCache.has(file)) {
+            return _specCache.get(file);
+        }
+
         let apiSpec: any = null;
 
         if (fs.existsSync(file)) {
@@ -186,7 +196,7 @@ export class OASUtils {
             } else {
                 throw new Error("Unsupported file type: " + fileType);
             }
-        } else if (file.match(new RegExp(/http[s]?:\/\/[a-zA-Z0-9]*\.?[a-z]*.*/))) {
+        } else if (_urlRegex.test(file)) {
             const axios: Axios = new Axios({ baseURL: file });
             const response: any = await axios.get(file);
             if (response && response.data) {
@@ -209,6 +219,15 @@ export class OASUtils {
             throw new Error("File not found: " + file);
         }
 
+        if (apiSpec !== null) {
+            _specCache.set(file, apiSpec);
+        }
+
         return apiSpec;
+    }
+
+    /** Clears the spec parse cache. Useful in tests to force re-loading of specs. */
+    public static clearSpecCache(): void {
+        _specCache.clear();
     }
 }

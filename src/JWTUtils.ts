@@ -149,9 +149,25 @@ export class JWTUtils {
      *
      * @param config The JWT configuration to use when generating the token.
      * @param user The user to encode into the token's payload.
-     * @param data Additional data to include the token's payload.
      */
-    public static createToken(config: JWTUtilsConfig, user: JWTUser, data?: any): string {
+    private static deriveKey(password: string, salt: Buffer): Promise<Buffer> {
+        return new Promise((resolve, reject) =>
+            crypto.scrypt(password, salt, 24, (err, key) => (err ? reject(err) : resolve(key))),
+        );
+    }
+
+    /**
+     * Generates a new JWT token for the given config and user object. The user object must be a valid RapidREST
+     * user.
+     *
+     * @param config The JWT configuration to use when generating the token.
+     * @param user The user to encode into the token's payload.
+     */
+    private static deriveKeySync(password: string, salt: Buffer): Buffer {
+        return crypto.scryptSync(password, salt, 24);
+    }
+
+    public static async createToken(config: JWTUtilsConfig, user: JWTUser, data?: any): Promise<string> {
         // Validate the required config options
         if (!config.secret) {
             throw new Error("Invalid configuration provided.");
@@ -175,7 +191,53 @@ export class JWTUtils {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
                 const salt = crypto.randomBytes(16);
-                const key: Buffer = crypto.scryptSync(pwOtions.password, salt, 24);
+                const key: Buffer = await JWTUtils.deriveKey(pwOtions.password, salt);
+                const cipher = crypto.createCipheriv(pwOtions.algorithm, key, iv);
+
+                let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
+                encrypted += cipher.final("base64");
+                payload.profile = salt.toString("base64") + ":" + encrypted;
+            }
+            payload.encryption = true;
+        }
+
+        // Compress the profile if desired
+        if (config.payload && config.payload.compress) {
+            if (config.payload.compress === JWTUtilsCompressionMethods.ZLIB) {
+                const buf: Buffer = Buffer.from(payload.profile, "utf-8");
+                payload.profile = zlib.gzipSync(buf).toString("base64");
+                payload.compression = "zlib";
+            }
+        }
+
+        return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
+    }
+
+    public static createTokenSync(config: JWTUtilsConfig, user: JWTUser, data?: any): string {
+        // Validate the required config options
+        if (!config.secret) {
+            throw new Error("Invalid configuration provided.");
+        }
+
+        // Validate the user object
+        if (!user || !user.uid) {
+            throw new Error("Invalid or null user object provided.");
+        }
+
+        let payload: any = { profile: JSON.stringify(user), ...data };
+
+        // Encrypt the profile if desired
+        if (config.payload && config.payload.encrypt) {
+            const payloadOptions: any = config.payload;
+            if (payloadOptions.public_key) {
+                const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
+                const encrypted: Buffer = crypto.publicEncrypt(keyOptions.public_key, Buffer.from(payload.profile));
+                payload.profile = encrypted.toString("base64");
+            } else {
+                const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
+                const iv: Buffer = Buffer.from(pwOtions.iv);
+                const salt = crypto.randomBytes(16);
+                const key: Buffer = JWTUtils.deriveKeySync(pwOtions.password, salt);
                 const cipher = crypto.createCipheriv(pwOtions.algorithm, key, iv);
 
                 let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
@@ -205,7 +267,7 @@ export class JWTUtils {
      * @param token The JWT token to validate.
      * @returns The data encoded in the token's payload.
      */
-    public static decodeToken(config: JWTUtilsConfig, token: string): JWTPayload {
+    public static async decodeToken(config: JWTUtilsConfig, token: string): Promise<JWTPayload> {
         // Decode the token
         let payload: any = jwt.verify(token, config.secret, config.options);
 
@@ -232,7 +294,57 @@ export class JWTUtils {
                 const iv: Buffer = Buffer.from(pwOtions.iv);
                 const [saltB64, profile] = payload.profile.split(":");
                 const salt = Buffer.from(saltB64, "base64");
-                const key: Buffer = crypto.scryptSync(pwOtions.password, salt, 24);
+                const key: Buffer = await JWTUtils.deriveKey(pwOtions.password, salt);
+                const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
+
+                let decrypted: string = decipher.update(profile, "base64", "utf8");
+                decrypted += decipher.final("utf8");
+                payload.profile = decrypted;
+            }
+        }
+
+        // Make sure the profile is an parsed
+        payload.profile = JSON.parse(payload.profile);
+
+        return payload;
+    }
+
+    /**
+     * Decodes the given JWT authentication token using the provided configuration. If the token is not valid an
+     * error is thrown with the reason. Returns the encoded user object payload upon success.
+     *
+     * @param config The JWT configuration to use when validating the token.
+     * @param token The JWT token to validate.
+     * @returns The data encoded in the token's payload.
+     */
+    public static decodeTokenSync(config: JWTUtilsConfig, token: string): JWTPayload {
+        // Decode the token
+        let payload: any = jwt.verify(token, config.secret, config.options);
+
+        // Validate the payload
+        if (!payload || !payload.profile) {
+            throw new Error("Token is invalid or missing data.");
+        }
+
+        // Decompress the payload if desired
+        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
+            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
+            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
+        }
+
+        // Decrypt the payload if desired
+        if (payload.encryption && config.payload && config.payload.encrypt) {
+            const payloadOptions: any = config.payload;
+            if (payloadOptions.private_key) {
+                const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
+                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile));
+                payload.profile = decrypted.toString("utf8");
+            } else {
+                const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
+                const iv: Buffer = Buffer.from(pwOtions.iv);
+                const [saltB64, profile] = payload.profile.split(":");
+                const salt = Buffer.from(saltB64, "base64");
+                const key: Buffer = JWTUtils.deriveKeySync(pwOtions.password, salt);
                 const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
 
                 let decrypted: string = decipher.update(profile, "base64", "utf8");

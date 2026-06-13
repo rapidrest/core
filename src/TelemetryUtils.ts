@@ -96,14 +96,14 @@ export class EventUtils {
      * @param logger The logging utility to use.
      * @param jwtToken The user's JWT token to send telemetry events on behalf of.
      */
-    public static init(config: any, logger: any, jwtToken: string) {
+    public static async init(config: any, logger: any, jwtToken: string): Promise<void> {
         EventUtils.config = config;
         EventUtils.listeners = new Map();
         EventUtils.logger = logger;
         EventUtils.token = jwtToken;
 
         // Extract the user id from the token
-        const payload: any = JWTUtils.decodeToken(config.get("auth"), jwtToken);
+        const payload: any = await JWTUtils.decodeToken(config.get("auth"), jwtToken);
         EventUtils.userId = payload.profile.uid;
 
         EventUtils.initialized = true;

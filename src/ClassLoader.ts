@@ -3,6 +3,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 import fs from "fs";
 import path from "path";
+
+const sepRegex = new RegExp("\\" + path.sep, "g");
 /**
  * The *ClassLoader* provides a container for dynamically loading classes at runtime using C#/Java style namespaces.
  * Namespaces are determined from the folder structure relative to the root.
@@ -106,7 +108,7 @@ export class ClassLoader {
      */
     public async load(dir: string = ""): Promise<void> {
         let fqp: string = path.resolve(path.join(this.rootDir, dir));
-        let files: fs.Dirent[] = fs.readdirSync(fqp, { withFileTypes: true });
+        let files: fs.Dirent[] = await fs.promises.readdir(fqp, { withFileTypes: true });
         for (let file of files) {
             // Is the file in the ignore list?
             let skipFile: boolean = false;
@@ -127,7 +129,7 @@ export class ClassLoader {
 
             let relpath: string = path.relative(this.rootDir, fqp);
             let fullpath: string = path.resolve(path.join(this.rootDir, relpath, file.name));
-            let pkg: string = relpath.replace(new RegExp("\\" + path.sep, "g"), ".");
+            let pkg: string = relpath.replace(sepRegex, ".");
 
             if (file.isDirectory()) {
                 let subdir: string = path.join(dir, file.name);
