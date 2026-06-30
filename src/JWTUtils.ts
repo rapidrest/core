@@ -143,6 +143,8 @@ export interface JWTUtilsConfig {
  * @author Jean-Philippe Steinmetz <rapidrests@gmail.com>
  */
 export class JWTUtils {
+    private static _parsedKeyCache = new Map();
+
     /**
      * Generates a new JWT token for the given config and user object. The user object must be a valid RapidREST
      * user.

@@ -3,6 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 
 const sepRegex = new RegExp("\\" + path.sep, "g");
 /**
@@ -36,11 +37,11 @@ const sepRegex = new RegExp("\\" + path.sep, "g");
  *     // ...
  * }
  * ```
- * 
+ *
  * **IMPORTANT**: If you use *ClassLoader* to dynamically load TypeScript files (.ts, .cts, .mts, etc.) at runtime using
  * an ESM-only project you must use the `ts-node/esm` module loader. This can be specified by passing the `--loader` to
  * node at runtime.
- * 
+ *
  * ```
  * node --loader ts-node/esm <module>
  * ```
@@ -135,7 +136,7 @@ export class ClassLoader {
                 let subdir: string = path.join(dir, file.name);
                 await this.load(subdir);
             } else if (this.includeJavaScript && extension.match(/^\.(js|cjs|mjs)$/)) {
-                const mod: any = await import(fullpath);
+                const mod: any = await import(pathToFileURL(fullpath).href);
                 if (mod) {
                     for (let name in mod) {
                         let clazz: any = mod[name];
@@ -147,7 +148,7 @@ export class ClassLoader {
                     throw new Error("Failed to load module file: " + fullpath);
                 }
             } else if (this.includeTypeScript && extension.match(/^\.(ts|cts|mts|tsx)$/)) {
-                const mod: any = await import(fullpath);
+                const mod: any = await import(pathToFileURL(fullpath).href);
                 if (mod) {
                     for (let name in mod) {
                         let clazz: any = mod[name];
