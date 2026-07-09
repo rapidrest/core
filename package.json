@@ -12,8 +12,6 @@
     ],
     "scripts": {
         "build": "yarn lint && rimraf dist && tsc",
-        "deploy-docs": "ts-node tools/gh-pages-publish",
-        "docs": "typedoc --plugin typedoc-plugin-markdown --out docs/reference src",
         "lint": "eslint ./src ./test",
         "local-audit": "yarn install && yarn npm audit -A -R \"$@\"",
         "checkup": "yarn dlx @yarnpkg/doctor \"$@\"",
@@ -69,8 +67,6 @@
         "rimraf": "^6.1.3",
         "ts-node": "^10.9.2",
         "twilio": "^6.0.2",
-        "typedoc": "^0.28.19",
-        "typedoc-plugin-markdown": "^4.12.0",
         "typescript": "^6.0.3",
         "vitest": "^4.1.8",
         "winston": "^3.19.0",
@@ -90,7 +86,6 @@
     "type": "module",
     "typings": "dist/types/index.d.ts",
     "files": [
-        "dist",
-        "docs"
+        "dist"
     ]
 }

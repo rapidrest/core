@@ -74,11 +74,11 @@ export class StringUtils {
      * Replaces all instances of the match regex pattern with the contents of the inner regular expression pattern for
      * the given string.
      *
-     * e.g.
-     * 
+     * @example
+     * ```ts
      * let result = replaceAll('/my/path/{id}', new RegExp('\\{([^\\}]+)\\}'), ':');
      * console.log(result); // -> /my/path/:id
-     *
+     * ```
      * @param {string} str The string to perform replacement on.
      * @param {RegExp} match The regular expression pattern to match containing an outer and inner pattern.
      * @param {string} prefix The prefix to prepend the replacement text with.
