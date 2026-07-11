@@ -14,6 +14,18 @@ const _specCache: Map<string, any> = new Map();
 
 const _urlRegex = /^https?:\/\/[a-zA-Z0-9]*\.?[a-z].*/;
 
+/**
+ * Options that restrict where `OASUtils.loadSpec` is permitted to load a specification from. Intended for callers
+ * that accept a spec path/URL from an external or untrusted source (e.g. a request parameter), to prevent path
+ * traversal (arbitrary local file read) and SSRF (requests to arbitrary/internal hosts).
+ */
+export interface LoadSpecOptions {
+    /** If set, `file` must resolve to a path contained within one of these directories. */
+    allowedDirs?: string[];
+    /** If set, a `file` given as a URL must have a hostname contained in this list. */
+    allowedHosts?: string[];
+}
+
 export class OASUtils {
     /**
      * Gets the datastore definition with the specified name.
@@ -173,12 +185,35 @@ export class OASUtils {
     /**
      * Attempts to load the Open API specification at the given path or URL.
      *
+     * **Security note**: `file` is used directly for local file access and outbound HTTP requests. If `file` may
+     * ever originate from an external or untrusted caller (e.g. a request parameter), pass `options.allowedDirs`
+     * and/or `options.allowedHosts` to restrict what can be loaded and prevent path traversal or SSRF.
+     *
      * @param {string} file The path or URL of the OpenAPI Specification file to load.
+     * @param {LoadSpecOptions} options Optional restrictions on what `file` is permitted to resolve to.
      * @returns {Promise<any>} A promise whose result will be the loaded OpenAPI Specification as an object.
      */
-    public static async loadSpec(file: string): Promise<any> {
+    public static async loadSpec(file: string, options?: LoadSpecOptions): Promise<any> {
         if (_specCache.has(file)) {
             return _specCache.get(file);
+        }
+
+        if (options?.allowedDirs && fs.existsSync(file)) {
+            const resolved = path.resolve(file);
+            const allowed = options.allowedDirs.some(dir => {
+                const rel = path.relative(path.resolve(dir), resolved);
+                return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+            });
+            if (!allowed) {
+                throw new Error(`File "${file}" is not within an allowed directory.`);
+            }
+        }
+
+        if (options?.allowedHosts && _urlRegex.test(file)) {
+            const hostname = new URL(file).hostname;
+            if (!options.allowedHosts.includes(hostname)) {
+                throw new Error(`Host "${hostname}" is not an allowed host.`);
+            }
         }
 
         let apiSpec: any = null;

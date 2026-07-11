@@ -46,10 +46,13 @@ export class StringUtils {
     public static findAndReplace(contents: string, variables: any): string {
         let output: string = contents;
 
-        // Pre-compile one regex per key (O(n)) rather than creating new RegExp inside nested loops (O(n²))
+        // Pre-compile one regex per key (O(n)) rather than creating new RegExp inside nested loops (O(n²)).
+        // The key is escaped since it may contain regex metacharacters (e.g. from external input), which could
+        // otherwise be used for regex injection or catastrophic backtracking (ReDoS).
         const regexCache = new Map<string, RegExp>();
         for (const key in variables) {
-            regexCache.set(key, new RegExp("(\\{\\{" + key + "\\}\\})", "g"));
+            const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            regexCache.set(key, new RegExp("(\\{\\{" + escapedKey + "\\}\\})", "g"));
         }
 
         // Go through all variables and perform replacement

@@ -1,13 +1,11 @@
-﻿///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-import child_process from "child_process";
 import fs from "fs";
 import path from "path";
 import { StringUtils } from "./StringUtils.js";
 import { mkdirp } from "mkdirp";
 import { Logger } from "./Logger.js";
-import { createInterface } from "readline";
 const logger = Logger();
 
 /**
@@ -16,23 +14,49 @@ const logger = Logger();
  */
  export class FileUtils {
     /**
-     * Attempts to write the provided contents to the file path given. If a file already exists the user is prompted to
-     * allow the file to be overwritten or merged. In the case of a merge, srcPath is used as a baseline in order to
-     * perform a 3-way merge.
+     * Throws an error if the resolved `target` path is not contained within the resolved `rootDir` directory. Used
+     * to prevent path traversal (e.g. `../`) from escaping an intended root when a caller opts in by providing
+     * `rootDir`.
      *
-     * @param {string} srcPath The baseline template file to use during a merge.
+     * @param {string} rootDir The directory that `target` must be contained within.
+     * @param {string} target The fully resolved path to verify.
+     */
+    private static assertContained(rootDir: string, target: string): void {
+        const rootResolved = path.resolve(rootDir);
+        const targetResolved = path.resolve(target);
+        const rel = path.relative(rootResolved, targetResolved);
+        if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
+            throw new Error(`Path "${target}" escapes the allowed root directory "${rootResolved}".`);
+        }
+    }
+
+    /**
+     * Attempts to write the provided contents to the file path given. If a file already exists at the destination
+     * an error is thrown unless `overwrite` is set to `true`.
+     *
+     * @param {string} srcPath The baseline template file the contents were generated from.
      * @param {string} outPath The destination file path to be written.
      * @param {any} contents The contents of the file to write.
-     * @param {boolean} overwrite Set to `true` to overwite the file and not perform a merge.
+     * @param {boolean} overwrite Set to `true` to overwrite an existing file at `outPath`.
+     * @param {string} rootDir Optional. When provided, `srcPath` and `outPath` must both resolve to a location
+     * contained within this directory, otherwise an error is thrown. Callers that pass externally-influenced paths
+     * should always supply this to prevent path traversal.
      */
     public static async writeFile(
         srcPath: string,
         outPath: string,
         contents: any,
-        overwrite: boolean = false
+        overwrite: boolean = false,
+        rootDir?: string
     ): Promise<void> {
         let srcPathFull = path.resolve(srcPath);
         let outPathFull = path.resolve(outPath);
+
+        if (rootDir) {
+            FileUtils.assertContained(rootDir, srcPathFull);
+            FileUtils.assertContained(rootDir, outPathFull);
+        }
+
         let fileExists = fs.existsSync(outPathFull);
 
         // Make sure the path leading to the final destination exists
@@ -42,74 +66,14 @@ const logger = Logger();
         }
 
         if (fileExists && !overwrite) {
-            // Prompt for user action
-            let invalidResponse = false;
-            while (invalidResponse) {
-                let response: string = await new Promise<string>((resolve, reject) => {
-                    const rl = createInterface({
-                        input: process.stdin,
-                        output: process.stdout
-                    });
-                    rl.question("Overwrite existing file: " + outPath + "? [Y]es, [N]o, [M]erge: ",
-                        (answer: string) => {
-                            rl.close();
-                            resolve(answer);
-                        }
-                    );
-                });
-                response = response.toLocaleLowerCase();
-
-                if (response.length > 0) {
-                    if (response[0] === "y" || response[0] === "n" || response[0] === "m") {
-                        if (response[0] === "n") {
-                            // Immediately exit, no point in continuing
-                            return;
-                        }
-
-                        overwrite = response[0] === "y";
-                    } else {
-                        logger.info("Invalid input: " + response);
-                    }
-                } else {
-                    logger.info("Invalid input: " + response);
-                }
-            }
+            throw new Error(
+                `File already exists at "${outPathFull}". Pass overwrite=true to replace it.`
+            );
         }
 
-        if (!fileExists || overwrite) {
-            // Write the final output to disk
-            logger.info("Writing: " + outPathFull);
-            fs.writeFileSync(outPathFull, contents);
-        } else {
-            // Attempt to merge the results
-            let tmpPath = path.resolve(outPathFull + ".new");
-            fs.writeFileSync(tmpPath, contents);
-            // Attempt to merge the updated version of the file with the original.
-            let mergedPath = path.resolve(outPathFull + ".merged");
-            let success = true;
-            try {
-                let { stdout, stderr } = child_process.exec(
-                    "kdiff3 " +
-                        srcPathFull +
-                        " " +
-                        outPathFull +
-                        " " +
-                        tmpPath +
-                        ' -m --auto --cs "ShowInfoDialogs=0" --cs "LineEndStyle=0" -o ' +
-                        mergedPath
-                );
-            } catch (err) {
-                success = false;
-            }
-            // Read back in the newly merged file so we can replace write a new generated date
-            let merged = fs.readFileSync(mergedPath, "utf-8");
-            merged = merged.replace(new RegExp("^// Last Generated.*$", "g"), "// Last Generated: " + new Date());
-            // Write the merged copy to the final destination and clean up temporary files
-            logger.info("Writing: " + outPathFull);
-            fs.writeFileSync(outPathFull, merged);
-            fs.unlinkSync(mergedPath);
-            fs.unlinkSync(tmpPath);
-        }
+        // Write the final output to disk
+        logger.info("Writing: " + outPathFull);
+        fs.writeFileSync(outPathFull, contents);
     }
 
     /**
@@ -119,14 +83,22 @@ const logger = Logger();
      * @param {string} srcPath The source file to copy.
      * @param {string} outPath The destination file to generate.
      * @param {any} variables The map of variable names to values to swap.
+     * @param {boolean} overwrite Set to `true` to overwrite an existing file at `outPath`.
+     * @param {string} rootDir Optional. When provided, all resolved source and destination paths must be contained
+     * within this directory, otherwise an error is thrown.
      */
     public static async copyFile(
         srcPath: string,
         outPath: string,
         variables: any = {},
-        overwrite: boolean = false
+        overwrite: boolean = false,
+        rootDir?: string
     ): Promise<void> {
         let srcPathFull: any = path.resolve(srcPath);
+
+        if (rootDir) {
+            FileUtils.assertContained(rootDir, srcPathFull);
+        }
 
         if (!fs.existsSync(srcPathFull)) {
             throw new Error("File does not exist: " + srcPathFull);
@@ -143,7 +115,7 @@ const logger = Logger();
             let output = StringUtils.findAndReplace(template, variables);
             let outPathFinal = path.resolve(StringUtils.findAndReplace(outPath, variables));
             logger.info("Writing: " + outPathFinal);
-            await FileUtils.writeFile(srcPath, outPathFinal, output, overwrite);
+            await FileUtils.writeFile(srcPath, outPathFinal, output, overwrite, rootDir);
         } else {
             throw new Error("Failed to read file: " + srcPathFull);
         }
@@ -155,9 +127,15 @@ const logger = Logger();
      * @param {string} srcPath The source file to copy.
      * @param {string} outPath The destination file to generate.
      * @param {Map<string,string>} variables The map of variable names to values to swap. Applies to outPath only.
+     * @param {string} rootDir Optional. When provided, all resolved source and destination paths must be contained
+     * within this directory, otherwise an error is thrown.
      */
-    public static async copyBinaryFile(srcPath: string, outPath: string, variables: any = {}): Promise<void> {
+    public static async copyBinaryFile(srcPath: string, outPath: string, variables: any = {}, rootDir?: string): Promise<void> {
         let srcPathFull: any = path.resolve(srcPath);
+
+        if (rootDir) {
+            FileUtils.assertContained(rootDir, srcPathFull);
+        }
 
         if (!fs.existsSync(srcPathFull)) {
             throw new Error("File does not exist: " + srcPathFull);
@@ -170,6 +148,11 @@ const logger = Logger();
         }
 
         let outPathFinal: string = path.resolve(StringUtils.findAndReplace(outPath, variables));
+
+        if (rootDir) {
+            FileUtils.assertContained(rootDir, outPathFinal);
+        }
+
         fs.copyFileSync(srcPathFull, outPathFinal);
     }
 
@@ -183,6 +166,8 @@ const logger = Logger();
      * @param {array} excludeFilters The list of file extension filters to exclude during the copy process.
      * @param {array} binaryFilters The list of file extension filters to copy as binary only.
      * @param {boolean} force Set to `true` to force writing over any existing files.
+     * @param {string} rootDir Optional. When provided, all resolved source and destination paths must be contained
+     * within this directory, otherwise an error is thrown.
      */
     public static async copyDirectory(
         srcPath: string,
@@ -190,9 +175,15 @@ const logger = Logger();
         vars: any = {},
         excludeFilters: Array<string> = [],
         binaryFilters: Array<string> = [],
-        force: boolean = false
+        force: boolean = false,
+        rootDir?: string
     ): Promise<void> {
         const templatePath = path.resolve(srcPath);
+
+        if (rootDir) {
+            FileUtils.assertContained(rootDir, templatePath);
+        }
+
         let files = fs.readdirSync(templatePath, { withFileTypes: true });
         files.forEach(async (file: any) => {
             let extension = path.extname(file.name);
@@ -213,12 +204,13 @@ const logger = Logger();
                         vars,
                         excludeFilters,
                         binaryFilters,
-                        force
+                        force,
+                        rootDir
                     );
                 } else if (binaryFilters.indexOf(extension) >= 0) {
-                    await FileUtils.copyBinaryFile(path.join(templatePath, file.name), destPath, vars);
+                    await FileUtils.copyBinaryFile(path.join(templatePath, file.name), destPath, vars, rootDir);
                 } else {
-                    await FileUtils.copyFile(path.join(templatePath, file.name), destPath, vars, force);
+                    await FileUtils.copyFile(path.join(templatePath, file.name), destPath, vars, force, rootDir);
                 }
             }
         });

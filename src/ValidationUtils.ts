@@ -81,8 +81,8 @@ export class ValidationUtils {
      * Validates that the provided string matches the regexp pattern /[a-zA-Z0-9_\-\.@:\+]+/.
      */
     public static checkName(val: string): string {
-        if (!/[a-zA-Z0-9_\-]+/.test(val)) {
-            throw new Error("Value is not a name matching pattern /[a-zA-Z0-9_\-\.@:\+]+/");
+        if (!/^[a-zA-Z0-9_\-.@:+]+$/.test(val)) {
+            throw new Error("Value is not a name matching pattern /^[a-zA-Z0-9_\-\.@:\+]+$/");
         }
         return val;
     }

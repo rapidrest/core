@@ -146,6 +146,26 @@ export class JWTUtils {
     private static _parsedKeyCache = new Map();
 
     /**
+     * Throws if `config.secret` looks like an asymmetric (RSA/EC) key but `config.options.algorithms` was not
+     * explicitly restricted. Signing/verifying with an asymmetric key while leaving `algorithms` unset opens the
+     * door to algorithm-confusion attacks (e.g. an attacker forging an HS256 token using the public key as the
+     * HMAC secret). HMAC secrets (plain strings/buffers that aren't PEM-encoded) are unaffected.
+     *
+     * @param config The JWT configuration to validate.
+     */
+    private static assertSafeAlgorithm(config: JWTUtilsConfig): void {
+        const secret = config.secret;
+        const looksAsymmetric =
+            typeof secret === "string" && /-----BEGIN [A-Z ]*(PRIVATE|PUBLIC) KEY-----/.test(secret);
+        if (looksAsymmetric && (!config.options?.algorithms || config.options.algorithms.length === 0)) {
+            throw new Error(
+                "config.secret appears to be an asymmetric key. config.options.algorithms must be explicitly set " +
+                    "(e.g. ['RS256']) to prevent algorithm-confusion attacks.",
+            );
+        }
+    }
+
+    /**
      * Generates a new JWT token for the given config and user object. The user object must be a valid RapidREST
      * user.
      *
@@ -180,7 +200,9 @@ export class JWTUtils {
             throw new Error("Invalid or null user object provided.");
         }
 
-        let payload: any = { profile: JSON.stringify(user), ...data };
+        // `data` is spread before `profile` so that a `profile` key present in caller-supplied `data` can never
+        // silently override the authoritative, server-derived user profile before signing.
+        let payload: any = { ...data, profile: JSON.stringify(user) };
 
         // Encrypt the profile if desired
         if (config.payload && config.payload.encrypt) {
@@ -212,6 +234,7 @@ export class JWTUtils {
             }
         }
 
+        JWTUtils.assertSafeAlgorithm(config);
         return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
     }
 
@@ -226,7 +249,9 @@ export class JWTUtils {
             throw new Error("Invalid or null user object provided.");
         }
 
-        let payload: any = { profile: JSON.stringify(user), ...data };
+        // `data` is spread before `profile` so that a `profile` key present in caller-supplied `data` can never
+        // silently override the authoritative, server-derived user profile before signing.
+        let payload: any = { ...data, profile: JSON.stringify(user) };
 
         // Encrypt the profile if desired
         if (config.payload && config.payload.encrypt) {
@@ -258,6 +283,7 @@ export class JWTUtils {
             }
         }
 
+        JWTUtils.assertSafeAlgorithm(config);
         return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
     }
 
@@ -270,6 +296,7 @@ export class JWTUtils {
      * @returns The data encoded in the token's payload.
      */
     public static async decodeToken(config: JWTUtilsConfig, token: string): Promise<JWTPayload> {
+        JWTUtils.assertSafeAlgorithm(config);
         // Decode the token
         let payload: any = jwt.verify(token, config.secret, config.options);
 
@@ -320,6 +347,7 @@ export class JWTUtils {
      * @returns The data encoded in the token's payload.
      */
     public static decodeTokenSync(config: JWTUtilsConfig, token: string): JWTPayload {
+        JWTUtils.assertSafeAlgorithm(config);
         // Decode the token
         let payload: any = jwt.verify(token, config.secret, config.options);
 

@@ -222,10 +222,12 @@ export class MessagingUtils {
             this.logger?.warn("Unable to send email missing from.email in message template");
             return undefined;
         }
+        // `options` is spread before the protected fields below so a caller cannot use it to override the
+        // configured sender or the rendered message contents (e.g. spoofed `from`, injected `bcc`).
         const result: any = await this._transporter.sendMail({
-            from: this.templates.from.email,
             ...tplConfig.email_options,
             ...options,
+            from: this.templates.from.email,
             subject,
             text: message,
             html: htmlMessage,
@@ -286,11 +288,12 @@ export class MessagingUtils {
         // Render using cached compiled delegate
         const message: string = this._compiledTemplates.get(`${templateName}:sms`)!(templateVars);
 
-        // Send the message to the user
+        // Send the message to the user. `options` is spread before the protected fields below so a caller cannot
+        // use it to override the configured sender or the rendered message body.
         const result: any = await this.twilio.messages.create({
-            from: this.templates.from.sms,
             ...tplConfig.sms_options,
             ...options,
+            from: this.templates.from.sms,
             body: message,
         });
 

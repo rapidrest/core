@@ -4,9 +4,9 @@
 import axios, { AxiosResponse } from "axios";
 import FormData from "form-data";
 import { ReadStream } from "fs";
-import handlebars from "handlebars";
 import JSZip from "jszip";
 import { sleep } from "./sleep.js";
+import { StringUtils } from "./StringUtils.js";
 
 const MAX_ATTEMPTS: number = 60;
 const MAX_CHARS_ALIAS: number = 512;
@@ -210,16 +210,13 @@ export class AlertUtils {
                 alert.tags = tags;
             }
 
-            // Process properties as templates
-            let template: handlebars.TemplateDelegate = handlebars.compile(
-                alert.description
-            );
-            alert.description = template(vars);
-            template = handlebars.compile(alert.message);
-            alert.message = template(vars);
+            // Perform variable substitution on the alert's text fields. Note: these fields are treated as plain
+            // data, never as a template to compile/execute, since `description`/`message`/`note` frequently
+            // originate from untrusted event or exception text and must not be interpretable as code.
+            alert.description = StringUtils.findAndReplace(alert.description, vars);
+            alert.message = StringUtils.findAndReplace(alert.message, vars);
             if (alert.note) {
-                template = handlebars.compile(alert.note);
-                alert.note = template(vars);
+                alert.note = StringUtils.findAndReplace(alert.note, vars);
             }
 
             let response: AxiosResponse = await axios.post(this.serviceUrl, alert, {

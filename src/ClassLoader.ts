@@ -109,6 +109,15 @@ export class ClassLoader {
      */
     public async load(dir: string = ""): Promise<void> {
         let fqp: string = path.resolve(path.join(this.rootDir, dir));
+
+        // Ensure the resolved directory is still contained within rootDir. Prevents a caller-supplied `dir`
+        // (e.g. containing "../") from escaping rootDir and dynamically importing/executing arbitrary modules
+        // found elsewhere on disk.
+        const rel = path.relative(this.rootDir, fqp);
+        if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
+            throw new Error(`Directory "${dir}" escapes the allowed root directory "${this.rootDir}".`);
+        }
+
         let files: fs.Dirent[] = await fs.promises.readdir(fqp, { withFileTypes: true });
         for (let file of files) {
             // Is the file in the ignore list?
