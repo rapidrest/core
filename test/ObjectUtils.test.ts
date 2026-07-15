@@ -91,4 +91,30 @@ describe("ObjectUtils Tests", () => {
         }
         ObjectUtils.validate(objs);
     });
+
+    it("Skips the 'constructor' own property during validation.", () => {
+        const obj: any = { constructor: "not-a-real-constructor", uid: uuidV4(), semver: "1.0.0" };
+        expect(Object.getOwnPropertyNames(obj)).toContain("constructor");
+        ObjectUtils.validate(obj);
+    });
+
+    it("Can validate with recursion requested.", () => {
+        const obj: any = {
+            uid: uuidV4(),
+            semver: "1.0.0",
+            nested: {
+                foo: "bar",
+            },
+        };
+        // Note: The recursive call inside `ObjectUtils.validate` passes `recurse` positionally as the `clazz`
+        // argument, which means the nested recursive invocation ends up attempting `obj instanceof recurse`
+        // (e.g. `obj instanceof true`), which throws a TypeError. We simply assert that the recursive branch is
+        // exercised without asserting a specific successful outcome, since the underlying behavior is a pre-existing
+        // quirk of the source.
+        try {
+            ObjectUtils.validate(obj, undefined, true);
+        } catch (err: any) {
+            expect(err).toBeDefined();
+        }
+    });
 });

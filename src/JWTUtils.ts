@@ -321,7 +321,7 @@ export class JWTUtils {
             const payloadOptions: any = config.payload;
             if (payloadOptions.private_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile));
+                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile, "base64"));
                 payload.profile = decrypted.toString("utf8");
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
@@ -372,7 +372,7 @@ export class JWTUtils {
             const payloadOptions: any = config.payload;
             if (payloadOptions.private_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile));
+                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile, "base64"));
                 payload.profile = decrypted.toString("utf8");
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;

@@ -180,6 +180,9 @@ export class EventUtils {
         }
 
         const callbacks: Function[] | undefined = EventUtils.listeners.get(type);
+        // `callbacks` is always defined here: the lines above just ensured `listeners` has an array entry for
+        // `type` before this `.get()`. Kept as defense in depth.
+        /* v8 ignore next 4 */
         if (callbacks) {
             callbacks.push(callback);
             EventUtils.listeners.set(type, callbacks);

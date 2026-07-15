@@ -46,10 +46,22 @@ export enum MyEnum2 {
 }
         `;
 
+        const jsNamedExport: string = `
+\`use strict\`;
+
+class MyClassNamed {
+    contructor() {
+    }
+}
+
+module.exports.MyClassNamed = MyClassNamed;
+        `;
+
         await mkdirp("./test/test-classes/com/company/javascript");
         await mkdirp("./test/test-classes/com/company/typescript");
         fs.writeFileSync("./test/test-classes/dummy.txt", "This is a test");
         fs.writeFileSync("./test/test-classes/MyJavaScriptClass.cjs", jsMyClass);
+        fs.writeFileSync("./test/test-classes/MyJavaScriptNamedExport.cjs", jsNamedExport);
         fs.writeFileSync("./test/test-classes/com/company/javascript/MyClass.cjs", jsMyClass);
         fs.writeFileSync("./test/test-classes/com/company/dummy.txt", "This is a test");
         fs.writeFileSync("./test/test-classes/MyTypeScriptClass.ts", tsMyClass);
@@ -75,6 +87,7 @@ export enum MyEnum2 {
         expect(loader.getClass("com.company.typescript.MyEnum")).toBeDefined();
         expect(loader.getClass("com.company.typescript.MyClass2")).toBeDefined();
         expect(loader.getClass("com.company.typescript.MyEnum2")).toBeDefined();
+        expect(loader.getClass("MyClassNamed")).toBeDefined();
     });
 
     it("Can load JavaScript classes only.", async () => {
@@ -111,5 +124,33 @@ export enum MyEnum2 {
         expect(loader.getClass("com.company.typescript.MyEnum")).toBeDefined();
         expect(loader.getClass("com.company.typescript.MyClass2")).toBeDefined();
         expect(loader.getClass("com.company.typescript.MyEnum2")).toBeDefined();
+    });
+
+    it("Can check if a class has been loaded.", async () => {
+        let loader: ClassLoader = new ClassLoader("./test/test-classes");
+        expect(loader).toBeDefined();
+        await loader.load();
+        expect(loader.hasClass("MyTypeScriptClass")).toBe(true);
+        expect(loader.hasClass("com.company.NonExistentClass")).toBe(false);
+    });
+
+    it("Fails to load a directory that escapes the root directory.", async () => {
+        let loader: ClassLoader = new ClassLoader("./test/test-classes/com/company");
+        expect(loader).toBeDefined();
+        try {
+            await loader.load("../../../../etc");
+            throw new Error("Failed to throw error.");
+        } catch (err: any) {
+            expect(err.message).toContain("escapes the allowed root directory");
+        }
+    });
+
+    it("Can ignore files matching the ignore list.", async () => {
+        let loader: ClassLoader = new ClassLoader("./test/test-classes", true, true, ["dummy.txt"]);
+        expect(loader).toBeDefined();
+        await loader.load();
+        let classes: Map<string, any> = loader.getClasses();
+        expect(classes).toBeDefined();
+        expect(loader.getClass("MyTypeScriptClass")).toBeDefined();
     });
 });

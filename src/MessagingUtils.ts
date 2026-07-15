@@ -120,6 +120,9 @@ export class MessagingUtils {
         if (this.smtpConfig) {
             try {
                 const nodemailer: any = await import("nodemailer");
+                /* v8 ignore next 3 -- a dynamically-imported ES module namespace object is always an
+                   object per spec (never null/undefined), so this guard can never be true. Kept as
+                   defense-in-depth in case of unusual bundler/loader interop. */
                 if (!nodemailer) {
                     throw new Error("Failed to import nodemailer. Did you add it to your project?");
                 }
@@ -142,10 +145,15 @@ export class MessagingUtils {
                 }
 
                 const twilio: any = await import("twilio");
+                /* v8 ignore next 3 -- a dynamically-imported ES module namespace object is always an
+                   object per spec (never null/undefined), so this guard can never be true. Kept as
+                   defense-in-depth in case of unusual bundler/loader interop. */
                 if (!twilio) {
                     throw new Error("Failed to import twilio. Did you add it to your project?");
                 }
-                this.twilio = twilio(this.twilioConfig.accountSid, this.twilioConfig.token, this.twilioConfig.options);
+                // `twilio`'s dynamic import only exposes a callable `default` export; the module namespace
+                // object itself is not callable (unlike e.g. nodemailer, which re-exports its named members).
+                this.twilio = twilio.default(this.twilioConfig.accountSid, this.twilioConfig.token, this.twilioConfig.options);
             } catch (error) {
                 this.logger?.error("Unable to setup twilio notifications");
                 this.logger?.debug(error);

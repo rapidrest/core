@@ -17,8 +17,8 @@
         "checkup": "yarn dlx @yarnpkg/doctor \"$@\"",
         "dependency-check": "yarn dlx depcheck \"$@\"",
         "report-coverage": "cat ./coverage/lcov.info | coveralls",
-        "test": "node --loader ts-node/esm ./node_modules/vitest/vitest.mjs run",
-        "test:prod": "npm run lint && node --loader ts-node/esm ./node_modules/vitest/vitest.mjs run",
+        "test": "node --loader ts-node/esm ./node_modules/vitest/vitest.mjs run --config test/vitest.config.ts --coverage",
+        "test:prod": "npm run lint && node --loader ts-node/esm ./node_modules/vitest/vitest.mjs run --config test/vitest.config.ts --coverage",
         "postversion": "git push && git push --tags"
     },
     "dependencies": {
@@ -51,6 +51,7 @@
         "@types/validator": "^13.15.10",
         "@typescript-eslint/eslint-plugin": "^8.61.0",
         "@typescript-eslint/parser": "^8.61.0",
+        "@vitest/coverage-v8": "^4.1.10",
         "axios": "^1.17.0",
         "coveralls": "^3.1.1",
         "eslint": "^9.39.4",
@@ -67,7 +68,7 @@
         "ts-node": "^10.9.2",
         "twilio": "^6.0.2",
         "typescript": "^6.0.3",
-        "vitest": "^4.1.8",
+        "vitest": "^4.1.10",
         "winston": "^3.19.0",
         "winston-transport": "^4.9.0"
     },

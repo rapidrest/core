@@ -146,6 +146,7 @@ export class ClassLoader {
                 await this.load(subdir);
             } else if (this.includeJavaScript && extension.match(/^\.(js|cjs|mjs)$/)) {
                 const mod: any = await import(pathToFileURL(fullpath).href);
+                /* v8 ignore else -- unreachable: dynamic `import()` either resolves to a truthy namespace object or rejects, it never resolves to a falsy value. */
                 if (mod) {
                     for (let name in mod) {
                         let clazz: any = mod[name];
@@ -158,6 +159,7 @@ export class ClassLoader {
                 }
             } else if (this.includeTypeScript && extension.match(/^\.(ts|cts|mts|tsx)$/)) {
                 const mod: any = await import(pathToFileURL(fullpath).href);
+                /* v8 ignore else -- unreachable: dynamic `import()` either resolves to a truthy namespace object or rejects, it never resolves to a falsy value. */
                 if (mod) {
                     for (let name in mod) {
                         let clazz: any = mod[name];

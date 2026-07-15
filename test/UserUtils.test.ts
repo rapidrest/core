@@ -26,10 +26,29 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasOrganization(testUser, uuidV4())).toBe(false);
     });
 
+    it("hasOrganization returns false for a missing or malformed user.", () => {
+        expect(UserUtils.hasOrganization(undefined, orgUid)).toBe(false);
+        expect(UserUtils.hasOrganization({}, orgUid)).toBe(false);
+        expect(UserUtils.hasOrganization({ orgs: "not-an-array" }, orgUid)).toBe(false);
+    });
+
     it("Can check for multiple organizations.", () => {
         expect(UserUtils.hasOrganizations(testUser, [orgUid, uuidV4()])).toBe(true);
         expect(UserUtils.hasOrganizations(testUser, [])).toBe(false);
         expect(UserUtils.hasOrganizations(testUser, [uuidV4(), uuidV4()])).toBe(false);
+    });
+
+    it("hasOrganizations returns false for a missing or malformed user/organizationUids.", () => {
+        expect(UserUtils.hasOrganizations(undefined, [orgUid])).toBe(false);
+        expect(UserUtils.hasOrganizations({}, [orgUid])).toBe(false);
+        expect(UserUtils.hasOrganizations(testUser, undefined)).toBe(false);
+        expect(UserUtils.hasOrganizations(testUser, "not-an-array" as any)).toBe(false);
+    });
+
+    it("getExternalId returns undefined for a missing or malformed user.", () => {
+        expect(UserUtils.getExternalId(undefined, "facebook")).toBeUndefined();
+        expect(UserUtils.getExternalId({}, "facebook")).toBeUndefined();
+        expect(UserUtils.getExternalId({ externalIds: "not-an-array" }, "facebook")).toBeUndefined();
     });
 
     it("Can check for single role.", () => {
@@ -37,6 +56,19 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasRole(testUser, "role2")).toBe(true);
         expect(UserUtils.hasRole(testUser, "role3")).toBe(false);
         expect(UserUtils.hasRole(testUser, "role4")).toBe(false);
+    });
+
+    it("hasRole returns false for a missing or malformed user.", () => {
+        expect(UserUtils.hasRole(undefined, "role1")).toBe(false);
+        expect(UserUtils.hasRole({}, "role1")).toBe(false);
+        expect(UserUtils.hasRole({ roles: "not-an-array" }, "role1")).toBe(false);
+    });
+
+    it("hasRoles returns false for a missing or malformed user/roles.", () => {
+        expect(UserUtils.hasRoles(undefined, ["role1"])).toBe(false);
+        expect(UserUtils.hasRoles({}, ["role1"])).toBe(false);
+        expect(UserUtils.hasRoles(testUser, undefined)).toBe(false);
+        expect(UserUtils.hasRoles(testUser, "not-an-array" as any)).toBe(false);
     });
 
     it("Can check for multiple roles.", () => {

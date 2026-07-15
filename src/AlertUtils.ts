@@ -172,7 +172,11 @@ export class AlertUtils {
                     Authorization: this.auth,
                 }
             });
-            return response.status >= 200 && response.status < 300 ? response.data : null;
+            // axios's default validateStatus already rejects (throws) any non-2xx response before we get here, so
+            // the alternate branch below is unreachable under normal operation; kept as defense in depth.
+            return response.status >= 200 && response.status < 300
+                ? response.data
+                : /* v8 ignore next */ null;
         } catch (err: any) {
             this.logger.error("Failed to retrieve alert with id " + id);
             this.logger.error(err.message);
@@ -203,7 +207,7 @@ export class AlertUtils {
             alert.source = alert.source.substring(0, MAX_CHARS_SOURCE);
             if (alert.tags) {
                 let tags: string[] = [];
-                for (let i = 0; i < MAX_TAGS; i++) {
+                for (let i = 0; i < Math.min(MAX_TAGS, alert.tags.length); i++) {
                     const tag: string = alert.tags[i];
                     tags.push(tag.substring(0, MAX_CHARS_TAGS));
                 }
@@ -224,7 +228,11 @@ export class AlertUtils {
                     Authorization: this.auth,
                 }
             });
-            const requestId: string | null = response.status >= 200 && response.status < 300 ? response.data.requestId : null;
+            // axios's default validateStatus already rejects (throws) any non-2xx response before we get here, so
+            // the alternate branch below is unreachable under normal operation; kept as defense in depth.
+            const requestId: string | null = response.status >= 200 && response.status < 300
+                ? response.data.requestId
+                : /* v8 ignore next */ null;
             if (!requestId) {
                 return null;
             }
@@ -234,13 +242,17 @@ export class AlertUtils {
             let count: number = 0;
             while (!id && count < MAX_ATTEMPTS) {
                 try {
-                    const url: string = `${this.serviceUrl}/requests/${requestId}}`;
+                    const url: string = `${this.serviceUrl}/requests/${requestId}`;
                     const response: AxiosResponse = await axios.get(url, {
                         headers: {
                             Authorization: this.auth,
                         }
                     });
-                    if (response.status >= 200  && response.status < 300) {
+                    // axios's default validateStatus already rejects (throws) any non-2xx response before we get
+                    // here, so the implicit else below is unreachable under normal operation; kept as defense in
+                    // depth.
+                    /* v8 ignore else */
+                    if (response.status >= 200 && response.status < 300) {
                         if (response.data.success && response.data.alertId) {
                             id = response.data.alertId;
                         }
@@ -303,7 +315,7 @@ export class AlertUtils {
 
             let url: string = `${this.serviceUrl}/${id}/attachments`;
             if (indexFile) {
-                url += "&indexFile=" + indexFile;
+                url += "?indexFile=" + indexFile;
             }
             const response: AxiosResponse = await axios.post(url, form, {
                 headers: {

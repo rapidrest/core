@@ -99,6 +99,10 @@ export class ThreadPool {
      * @param logger The Winston logger instance to forward all worker thread logs to.
      */
     constructor(max: number = 0, logger?: any) {
+        // The `os.cpus().length` fallback can never actually be selected: `this.maxThreads`'s field initializer
+        // already evaluates to that same (always-truthy on a real OS) value before the constructor body runs, so
+        // it's only falsy when `os.cpus().length` itself is falsy too. Kept as defense in depth.
+        /* v8 ignore next */
         this.maxThreads = max || this.maxThreads || os.cpus().length;
         this.lastThread = 0;
         this.logger = logger;

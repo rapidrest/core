@@ -366,6 +366,10 @@ export class ObjectFactory {
         });
 
         // Store the instance in our list of objects
+        // `name` is always a truthy string by this point (it defaults to a freshly generated uuidV4() at the top
+        // of this method and is never subsequently cleared), so the `else` (skip) side of this guard is
+        // unreachable dead code kept only as defense-in-depth.
+        /* v8 ignore else */
         if (name) {
             // Save the name to the object
             Object.defineProperty(instance as any, "_name", {
