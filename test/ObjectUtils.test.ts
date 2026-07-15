@@ -2,11 +2,30 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import { ObjectDecorators } from "../src/decorators";
+import { RequiresScope } from "../src/decorators/ObjectDecorators";
+import { JWTUser } from "../src/JWTUtils";
 import { ObjectUtils } from "../src/ObjectUtils";
 import { ValidationUtils } from "../src/ValidationUtils";
 const { Nullable, Validator } = ObjectDecorators;
 import { v4 as uuidV4 } from "uuid";
 import { describe, it, expect } from "vitest";
+
+class TestScopeClass {
+    public uid: string = uuidV4();
+
+    public name: string = "username";
+
+    @RequiresScope("profile")
+    public givenName: string = "John";
+
+    @RequiresScope("profile")
+    public familyName: string = "Smith";
+
+    @RequiresScope("email")
+    public email: string = "john.smith@gmail.com";
+
+    public version: number = 0;
+}
 
 class TestValidationClass {
     @Validator(ValidationUtils.checkUUID)
@@ -26,6 +45,61 @@ class TestValidationClass {
 }
 
 describe("ObjectUtils Tests", () => {
+    const jwtConfig = {
+        secret: "MyPasswordIsSecure",
+        options: {
+            audience: "rapidrest.dev",
+            issuer: "rapidrest.dev",
+        },
+    };
+
+    it("Can read scoped properties with user scopes [profile, email].", () => {
+        let testObj: TestScopeClass = new TestScopeClass();
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: ["profile", "email"],
+        };
+        ObjectUtils.deleteScopedProps(testObj, user, TestScopeClass);
+        expect(testObj).toHaveProperty("givenName");
+        expect(testObj.givenName).toBe("John");
+        expect(testObj).toHaveProperty("familyName");
+        expect(testObj.familyName).toBe("Smith");
+        expect(testObj).toHaveProperty("email");
+        expect(testObj.email).toBe("john.smith@gmail.com");
+    });
+
+    it("Can read scoped properties with user scopes [profile].", () => {
+        let testObj: TestScopeClass = new TestScopeClass();
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: ["profile"],
+        };
+        ObjectUtils.deleteScopedProps(testObj, user, TestScopeClass);
+        expect(testObj).toHaveProperty("givenName");
+        expect(testObj.givenName).toBe("John");
+        expect(testObj).toHaveProperty("familyName");
+        expect(testObj.familyName).toBe("Smith");
+        expect(testObj).not.toHaveProperty("email");
+    });
+
+    it("Cannot read scoped properties without user scopes [profile,email].", () => {
+        let testObj: TestScopeClass = new TestScopeClass();
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        ObjectUtils.deleteScopedProps(testObj, user, TestScopeClass);
+        expect(testObj).not.toHaveProperty("givenName");
+        expect(testObj).not.toHaveProperty("familyName");
+        expect(testObj).not.toHaveProperty("email");
+    });
+
     it("Can validate object.", () => {
         let testObj: TestValidationClass = new TestValidationClass();
         ObjectUtils.validate(testObj);

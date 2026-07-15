@@ -101,6 +101,20 @@ export function Nullable(target: any, propertyKey: string | symbol) {
 export type ValidatorFunction = (value: any) => any;
 
 /**
+ * Indicates that the client's token must carry at least one of the specified OAuth-style scope(s) to have read access
+ * to the decorated property. When a client does not have the defined scope the property is removed from the final object
+ * construction.
+ *
+ * @param scope The scope that the authenticated user's token must carry to read the property.
+ */
+export function RequiresScope(scope: string | string[]) {
+    return function (target: any, propertyKey: string | symbol) {
+        const scopes: string[] = Array.isArray(scope) ? scope : [scope];
+        Reflect.defineMetadata("rrst:scopes", scopes, target, propertyKey);
+    };
+}
+
+/**
  * Apply this to a property to specify the function that will be used to perform validation of the value.
  *
  * @param func The validation function to use for the given property.

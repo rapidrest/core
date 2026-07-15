@@ -115,4 +115,38 @@ export class UserUtils {
 
         return false;
     }
+
+    /**
+     * Returns `true` if the given user object has a scope with the specified name, otherwise returns `false`.
+     *
+     * @param user The user object to inspect.
+     * @param scope The scope to search for.
+     */
+    public static hasScope(user: any, scope: string): boolean {
+        let result: boolean = false;
+
+        if (user && Array.isArray(user.scopes)) {
+            result = user.scopes.includes(scope);
+        }
+
+        return result;
+    }
+
+    /**
+     * Returns `true` if the given user object has at least one of the specified scopes, otherwise returns `false`.
+     *
+     * @param user The user object to inspect.
+     * @param scope The list of scopes to search for.
+     */
+    public static hasScopes(user: any, scopes: string[]): boolean {
+        if (user && Array.isArray(user.scopes)) {
+            for (const scope of scopes) {
+                if (UserUtils.hasScope(user, scope)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }
