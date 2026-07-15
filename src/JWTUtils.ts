@@ -22,9 +22,14 @@ export interface JWTUser {
     name: string;
 
     /**
-     * The list of roles (by name) that the user is apart of and will assume privileges for.
+     * The list of roles (by name) that the user is a member of and will inherit the permissions of.
      */
     roles: string[];
+
+    /**
+     * The list of auth scopes that the user has been granted permission for.
+     */
+    scopes: string[];
 
     /**
      * Indicates if the user's e-mail address has been verified.
