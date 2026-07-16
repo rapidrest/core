@@ -17,11 +17,6 @@ export interface JWTUser {
     uid: string;
 
     /**
-     * The unique name of the user.
-     */
-    name: string;
-
-    /**
      * The list of roles (by name) that the user is a member of and will inherit the permissions of.
      */
     roles: string[];
