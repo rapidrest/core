@@ -31,7 +31,11 @@ export class ValidationUtils {
      * Validates that the provided string represents a ISO, RFC or UTC date or timestamp.
      */
     public static checkDate(val: string): string {
-        if (!validator.isDate(val)) {
+        // `validator.isDate()` only accepts a narrow set of bare-date formats (e.g. `YYYY-MM-DD`) and
+        // rejects full ISO-8601 timestamps such as `1982-10-09T00:00:00.000Z` — the exact wire format
+        // every `Date` field is serialized to over JSON. `Date.parse` accepts any string JS itself
+        // recognizes as a date, including those timestamps.
+        if (isNaN(Date.parse(val))) {
             throw new Error("Value is not a Date.");
         }
         return val;
