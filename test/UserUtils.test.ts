@@ -13,6 +13,7 @@ describe("UserUtils Tests.", () => {
         personas: [{ uid: uuidV4() }, { uid: uuidV4() }, { uid: uuidV4() }],
         externalIds: [`facebook:89761181`, `twitter:567896132`],
         orgs: [orgUid],
+        scopes: ["profile", "email"],
     };
 
     it("Can get external id.", () => {
@@ -97,5 +98,28 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasRoles(testUser, ["role3", "role4"], orgUid)).toBe(true);
         expect(UserUtils.hasRoles(testUser, ["role3", "role5"], orgUid)).toBe(true);
         expect(UserUtils.hasRoles(testUser, ["role4", "role5"], orgUid)).toBe(true);
+    });
+
+    it("Can check for single scope.", () => {
+        expect(UserUtils.hasScope(testUser, "profile")).toBe(true);
+        expect(UserUtils.hasScope(testUser, "email")).toBe(true);
+        expect(UserUtils.hasScope(testUser, "admin")).toBe(false);
+    });
+
+    it("hasScope returns false for a missing or malformed user.", () => {
+        expect(UserUtils.hasScope(undefined, "profile")).toBe(false);
+        expect(UserUtils.hasScope({}, "profile")).toBe(false);
+        expect(UserUtils.hasScope({ scopes: "not-an-array" }, "profile")).toBe(false);
+    });
+
+    it("Can check for multiple scopes.", () => {
+        expect(UserUtils.hasScopes(testUser, ["profile", "admin"])).toBe(true);
+        expect(UserUtils.hasScopes(testUser, ["admin", "superuser"])).toBe(false);
+    });
+
+    it("hasScopes returns false for a missing or malformed user.", () => {
+        expect(UserUtils.hasScopes(undefined, ["profile"])).toBe(false);
+        expect(UserUtils.hasScopes({}, ["profile"])).toBe(false);
+        expect(UserUtils.hasScopes({ scopes: "not-an-array" }, ["profile"])).toBe(false);
     });
 });

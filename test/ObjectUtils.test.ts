@@ -100,6 +100,66 @@ describe("ObjectUtils Tests", () => {
         expect(testObj).not.toHaveProperty("email");
     });
 
+    it("Can process an array of objects for scope deletion.", () => {
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        const objs: TestScopeClass[] = [new TestScopeClass(), new TestScopeClass()];
+        ObjectUtils.deleteScopedProps(objs, user, TestScopeClass);
+        for (const obj of objs) {
+            expect(obj).not.toHaveProperty("givenName");
+            expect(obj).not.toHaveProperty("email");
+        }
+    });
+
+    it("Constructs a fresh clazz instance to read metadata when obj is not already an instance of clazz.", () => {
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        // A plain object literal is not `instanceof TestScopeClass`, forcing deleteScopedProps to build
+        // `new clazz()` purely to read the @RequiresScope metadata off its prototype.
+        const plainObj: any = { name: "username", givenName: "John", email: "john.smith@gmail.com" };
+        ObjectUtils.deleteScopedProps(plainObj, user, TestScopeClass);
+        expect(plainObj).not.toHaveProperty("givenName");
+        expect(plainObj).not.toHaveProperty("email");
+        expect(plainObj).toHaveProperty("name");
+    });
+
+    it("Skips the 'constructor' own property during scope deletion.", () => {
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        const obj: any = { constructor: "not-a-real-constructor", givenName: "John" };
+        expect(Object.getOwnPropertyNames(obj)).toContain("constructor");
+        ObjectUtils.deleteScopedProps(obj, user, undefined);
+        expect(obj.constructor).toBe("not-a-real-constructor");
+    });
+
+    it("Recurses into nested object properties when recurse is true.", () => {
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        const obj: any = {
+            name: "outer",
+            nested: new TestScopeClass(),
+        };
+        ObjectUtils.deleteScopedProps(obj, user, undefined, true);
+        expect(obj.nested).not.toHaveProperty("givenName");
+        expect(obj.nested).not.toHaveProperty("email");
+    });
+
     it("Can validate object.", () => {
         let testObj: TestValidationClass = new TestValidationClass();
         ObjectUtils.validate(testObj);
