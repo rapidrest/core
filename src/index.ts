@@ -5,6 +5,7 @@ export * from "./decorators/index.js";
 export * from "./FileUtils.js";
 export * from "./JWTUtils.js";
 export * from "./Logger.js";
+export * from "./MemoryStore.js";
 export * from "./MessagingUtils.js";
 export * from "./ObjectFactory.js";
 export * from "./ObjectUtils.js";
