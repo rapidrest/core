@@ -185,7 +185,10 @@ const logger = Logger();
         }
 
         let files = fs.readdirSync(templatePath, { withFileTypes: true });
-        files.forEach(async (file: any) => {
+        // Iterated with a sequentially-awaited for-of (not `Array#forEach`, which ignores the promise its async
+        // callback returns): copyDirectory must not resolve until every nested copy has actually finished, and
+        // any error thrown by a nested copy must propagate to the caller instead of becoming an unhandled rejection.
+        for (const file of files) {
             let extension = path.extname(file.name);
             if (!extension) {
                 extension = file.name;
@@ -194,9 +197,15 @@ const logger = Logger();
             if (excludeFilters.indexOf(extension) === -1) {
                 let destPath = StringUtils.findAndReplace(path.join(outPath, file.name), vars);
 
+                if (rootDir) {
+                    FileUtils.assertContained(rootDir, destPath);
+                }
+
                 if (file.isDirectory()) {
                     if (!fs.existsSync(destPath)) {
-                        fs.mkdirSync(destPath);
+                        // Recursive: `outPath` itself may not exist yet either, e.g. when directory entries are
+                        // processed ahead of any file entry that would otherwise implicitly create it via mkdirp.
+                        fs.mkdirSync(destPath, { recursive: true });
                     }
                     await FileUtils.copyDirectory(
                         path.join(templatePath, file.name),
@@ -213,6 +222,6 @@ const logger = Logger();
                     await FileUtils.copyFile(path.join(templatePath, file.name), destPath, vars, force, rootDir);
                 }
             }
-        });
+        }
     }
 }

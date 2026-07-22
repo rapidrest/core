@@ -742,6 +742,30 @@ describe("OASUtils Tests", () => {
                 }),
             ).rejects.toThrow("is not an allowed host");
         });
+
+        it("throws for a URL when only allowedDirs is set, rather than allowing the request through ungated.", async () => {
+            await expect(
+                OASUtils.loadSpec("https://localhost:3000/openapi.yaml", { allowedDirs: ["./test-openapi"] }),
+            ).rejects.toThrow("is not an allowed host");
+        });
+
+        it("throws for a local path when only allowedHosts is set, rather than allowing the read through ungated.", async () => {
+            await expect(
+                OASUtils.loadSpec("./test-openapi/openapi.json", { allowedHosts: ["localhost"] }),
+            ).rejects.toThrow("is not within an allowed directory");
+        });
+
+        it("re-validates on every call instead of letting a cached entry bypass a later restriction.", async () => {
+            // First load with no restrictions at all, populating the cache for this file key.
+            const unrestricted = await OASUtils.loadSpec("./test-openapi/openapi.json");
+            expect(unrestricted).toBeDefined();
+
+            // A later call for the same file key with a restriction that it fails must still be enforced,
+            // not short-circuited by the cache entry populated above.
+            await expect(
+                OASUtils.loadSpec("./test-openapi/openapi.json", { allowedDirs: ["./some-other-directory"] }),
+            ).rejects.toThrow("is not within an allowed directory");
+        });
     });
 
     describe("clearSpecCache", () => {

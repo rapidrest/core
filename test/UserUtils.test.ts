@@ -122,4 +122,9 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasScopes({}, ["profile"])).toBe(false);
         expect(UserUtils.hasScopes({ scopes: "not-an-array" }, ["profile"])).toBe(false);
     });
+
+    it("hasScopes returns false instead of throwing when scopes is missing or malformed.", () => {
+        expect(UserUtils.hasScopes(testUser, undefined)).toBe(false);
+        expect(UserUtils.hasScopes(testUser, "not-an-array" as any)).toBe(false);
+    });
 });

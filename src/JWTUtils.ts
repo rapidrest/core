@@ -155,8 +155,12 @@ export class JWTUtils {
      */
     private static assertSafeAlgorithm(config: JWTUtilsConfig): void {
         const secret = config.secret;
+        const pemPattern = /-----BEGIN [A-Z ]*(PRIVATE|PUBLIC) KEY-----/;
+        // `fs.readFileSync()` - the idiomatic way to load a key file - returns a Buffer, not a string, so both
+        // representations must be checked or the guard below is trivially bypassed.
         const looksAsymmetric =
-            typeof secret === "string" && /-----BEGIN [A-Z ]*(PRIVATE|PUBLIC) KEY-----/.test(secret);
+            (typeof secret === "string" && pemPattern.test(secret)) ||
+            (Buffer.isBuffer(secret) && pemPattern.test(secret.toString("utf8")));
         if (looksAsymmetric && (!config.options?.algorithms || config.options.algorithms.length === 0)) {
             throw new Error(
                 "config.secret appears to be an asymmetric key. config.options.algorithms must be explicitly set " +

@@ -240,15 +240,20 @@ describe("ObjectUtils Tests", () => {
                 foo: "bar",
             },
         };
-        // Note: The recursive call inside `ObjectUtils.validate` passes `recurse` positionally as the `clazz`
-        // argument, which means the nested recursive invocation ends up attempting `obj instanceof recurse`
-        // (e.g. `obj instanceof true`), which throws a TypeError. We simply assert that the recursive branch is
-        // exercised without asserting a specific successful outcome, since the underlying behavior is a pre-existing
-        // quirk of the source.
-        try {
-            ObjectUtils.validate(obj, undefined, true);
-        } catch (err: any) {
-            expect(err).toBeDefined();
-        }
+        // The recursive call used to pass `recurse` positionally as the `clazz` argument, which made the nested
+        // invocation attempt `obj instanceof recurse` (e.g. `obj instanceof true`) and throw a TypeError for any
+        // object with a nested property. Fixed to pass `undefined` for `clazz` so recursion actually validates.
+        expect(() => ObjectUtils.validate(obj, undefined, true)).not.toThrow();
+    });
+
+    it("Recursion validates nested object properties and reports failures from the nested object.", () => {
+        const obj: any = {
+            uid: uuidV4(),
+            semver: "1.0.0",
+            nested: {
+                foo: null,
+            },
+        };
+        expect(() => ObjectUtils.validate(obj, undefined, true)).toThrow("Property foo cannot be null.");
     });
 });

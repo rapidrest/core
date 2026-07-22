@@ -109,22 +109,57 @@ describe("MemoryStore Tests", () => {
             expect(store.load("id1")).toEqual({ foo: "baz" });
         });
 
-        it("Clears all entries once the store grows beyond maxSize before inserting the new one.", async () => {
+        it("Evicts the single oldest entry once the store is at maxSize, without touching the others.", async () => {
             store = new MemoryStore();
-            store.maxSize = 1;
+            store.maxSize = 2;
 
             await store.save("id1", { n: 1 });
             await store.save("id2", { n: 2 });
-            // At the second save's check, size is 1 (only id1 so far) so 1 > 1 is false; id2 is added
-            // without clearing, leaving both entries in place.
             expect((store as any).entries.size).toBe(2);
 
-            // Third save: size is 2 at the check, so 2 > 1 is true and the map is cleared before id3 is inserted.
+            // Adding a third distinct id at capacity evicts only the oldest (id1), not the whole map.
             await store.save("id3", { n: 3 });
-            expect((store as any).entries.size).toBe(1);
-            expect(store.load("id3")).toEqual({ n: 3 });
+            expect((store as any).entries.size).toBe(2);
             expect(store.load("id1")).toBeUndefined();
-            expect(store.load("id2")).toBeUndefined();
+            expect(store.load("id2")).toEqual({ n: 2 });
+            expect(store.load("id3")).toEqual({ n: 3 });
+        });
+
+        it("Reclaims already-expired entries before evicting a live one.", async () => {
+            vi.useFakeTimers();
+            store = new MemoryStore();
+            store.maxSize = 2;
+
+            await store.save("expired", { n: 1 }, 1);
+            await store.save("alive", { n: 2 }, 120);
+            vi.advanceTimersByTime(1001);
+
+            // At capacity, but "expired" is stale: sweeping it should free a slot without evicting "alive".
+            await store.save("id3", { n: 3 });
+            expect((store as any).entries.size).toBe(2);
+            expect(store.load("alive")).toEqual({ n: 2 });
+            expect(store.load("id3")).toEqual({ n: 3 });
+        });
+
+        it("Overwriting an existing id at capacity does not evict anything.", async () => {
+            store = new MemoryStore();
+            store.maxSize = 2;
+
+            await store.save("id1", { n: 1 });
+            await store.save("id2", { n: 2 });
+            await store.save("id1", { n: 99 });
+
+            expect((store as any).entries.size).toBe(2);
+            expect(store.load("id1")).toEqual({ n: 99 });
+            expect(store.load("id2")).toEqual({ n: 2 });
+        });
+
+        it("A degenerate maxSize of 0 does not throw, even though nothing can be evicted from an empty map.", async () => {
+            store = new MemoryStore();
+            store.maxSize = 0;
+
+            await expect(store.save("id1", { n: 1 })).resolves.toBeUndefined();
+            expect(store.load("id1")).toEqual({ n: 1 });
         });
     });
 

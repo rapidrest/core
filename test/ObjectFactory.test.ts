@@ -349,6 +349,49 @@ describe("ObjectFactory Tests", () => {
         localFactory.clear();
     });
 
+    it("destroy(instance) removes the instance from the map so a later newInstance() with the same name builds a fresh one.", async () => {
+        const localFactory = new ObjectFactory(config, Logger());
+        localFactory.register(TestClassB);
+        const first: TestClassB = await localFactory.newInstance(TestClassB, {
+            name: "default",
+            args: ["construct", 1],
+        });
+
+        await localFactory.destroy(first);
+        expect(localFactory.instances.has("TestClassB:default")).toBe(false);
+
+        const second: TestClassB = await localFactory.newInstance(TestClassB, {
+            name: "default",
+            args: ["construct", 1],
+        });
+        expect(second).not.toBe(first);
+        expect(second.arg1).toBe("construct");
+        localFactory.clear();
+    });
+
+    it("destroy() with no arguments removes every managed instance but keeps the factory's own self-registration.", async () => {
+        const localFactory = new ObjectFactory(config, Logger());
+        localFactory.register(TestClassA);
+        await localFactory.newInstance(TestClassA, { name: "toBeDestroyed" });
+
+        await localFactory.destroy();
+
+        expect(localFactory.instances.has("TestClassA:toBeDestroyed")).toBe(false);
+        expect(localFactory.getInstance(ObjectFactory)).toBe(localFactory);
+        localFactory.clear();
+    });
+
+    it("destroy() does not overwrite an existing .name property when destroying all instances.", async () => {
+        const localFactory = new ObjectFactory(config, Logger());
+        const preNamed: any = { name: "already-named" };
+        localFactory.instances.set("preNamed", preNamed);
+
+        await localFactory.destroy();
+
+        expect(preNamed.name).toBe("already-named");
+        localFactory.clear();
+    });
+
     it("clearAll removes all instances and registered classes.", async () => {
         const localFactory = new ObjectFactory(config, Logger());
         localFactory.register(TestClassA);

@@ -226,6 +226,40 @@ describe("ThreadPool Unit Tests.", () => {
         );
     });
 
+    it("stop() does not double-fire 'exit' callbacks when terminate() itself emits the real 'exit' event.", async () => {
+        // Real `worker_threads.Worker#terminate()` resolves precisely because the worker's own 'exit' event fires;
+        // the mock above doesn't reproduce that by default, so this test wires it up explicitly to exercise the
+        // interaction between the "exit" listener registered in createWorker and stop()'s own callback loop.
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js" }, 1);
+        createdWorkers[0].emit("online");
+        await promise;
+
+        createdWorkers[0].terminate = vi.fn(async () => {
+            createdWorkers[0].emit("exit", 0);
+            return 0;
+        });
+
+        const exits: any[] = [];
+        pool.on("exit", (id: number, code: number) => exits.push([id, code]));
+
+        await pool.stop();
+
+        expect(exits).toEqual([[0, 0]]);
+    });
+
+    it("stop() clears the workers array so a stale/terminated worker can't be routed to afterward.", async () => {
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ entry: "./worker.js" }, 2);
+        createdWorkers.forEach((w) => w.emit("online"));
+        await promise;
+
+        await pool.stop();
+
+        expect(pool.size).toBe(0);
+        expect(pool.workers).toHaveLength(0);
+    });
+
     it("on() supports multiple callbacks for the same event type.", async () => {
         // The native "online" event only drives readiness for entry-style pools (see the dedicated test above);
         // the "online" callback list is only invoked via the worker-style ONLINE message, so that's what's used

@@ -131,10 +131,15 @@ export class ThreadPool {
             }
         });
         worker.on("exit", async (code) => {
-            const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("exit");
-            if (listeners) {
-                for (const callback of listeners) {
-                    callback(idx, code);
+            // While stop() is in progress it fires "exit" callbacks itself, using the authoritative exit code
+            // returned by terminate() - which is what triggers this very event. Firing them again here would
+            // invoke every registered "exit" callback twice per worker for a single stop() call.
+            if (!this.shutdown) {
+                const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("exit");
+                if (listeners) {
+                    for (const callback of listeners) {
+                        callback(idx, code);
+                    }
                 }
             }
 
@@ -248,6 +253,10 @@ export class ThreadPool {
                 }
             }
         }
+
+        // Drop all terminated workers so `size`/`send()` don't keep referencing dead workers across a
+        // subsequent start()/stop() cycle. `workers` is a `readonly` array reference, so it's truncated in place.
+        this.workers.length = 0;
     }
 
     /**

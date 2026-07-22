@@ -83,7 +83,7 @@ export class ObjectUtils {
 
                 // If recursion is requested validate the child object
                 if (recurse && typeof obj[member] === "object") {
-                    ObjectUtils.validate(obj[member], recurse);
+                    ObjectUtils.validate(obj[member], undefined, recurse);
                 }
             }
         }

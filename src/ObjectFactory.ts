@@ -149,6 +149,18 @@ export class ObjectFactory {
                     this.logger.debug(err);
                 }
             }
+
+            // Remove the now-destroyed instance so a later newInstance()/getInstance() call doesn't hand back a
+            // torn-down zombie via the instances-map fast path. The factory's own bootstrap self-registration
+            // (see the constructor) is left in place since it isn't a user-managed instance.
+            if (name && obj !== this) {
+                this.instances.delete(name);
+                for (const [className, firstName] of this._firstByClass) {
+                    if (firstName === name) {
+                        this._firstByClass.delete(className);
+                    }
+                }
+            }
         }
     }
 

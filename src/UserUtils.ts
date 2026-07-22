@@ -138,8 +138,8 @@ export class UserUtils {
      * @param user The user object to inspect.
      * @param scope The list of scopes to search for.
      */
-    public static hasScopes(user: any, scopes: string[]): boolean {
-        if (user && Array.isArray(user.scopes)) {
+    public static hasScopes(user: any, scopes?: string[]): boolean {
+        if (user && Array.isArray(user.scopes) && Array.isArray(scopes)) {
             for (const scope of scopes) {
                 if (UserUtils.hasScope(user, scope)) {
                     return true;

@@ -250,6 +250,18 @@ describe("JWTUtils Tests.", () => {
         );
     });
 
+    it("Cannot use an asymmetric secret loaded as a Buffer (e.g. via fs.readFileSync) without restricting algorithms.", async () => {
+        // fs.readFileSync() - the idiomatic way to load a key file - returns a Buffer, not a string. The
+        // algorithm-confusion guard must catch this form too, not just string secrets.
+        const unsafeConfig = { secret: Buffer.from(rsaPrivateKey, "utf8") };
+        await expect(JWTUtils.createToken(unsafeConfig, testUser)).rejects.toThrow(
+            "config.secret appears to be an asymmetric key.",
+        );
+        expect(() => JWTUtils.createTokenSync(unsafeConfig, testUser)).toThrow(
+            "config.secret appears to be an asymmetric key.",
+        );
+    });
+
     it("Ignores an unrecognized compression method.", async () => {
         const bogusCompressConfig = {
             secret: "MyPasswordIsSecure",

@@ -4,7 +4,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import { FileUtils } from "../src/FileUtils.js";
-import { sleep } from "../src/sleep.js";
 import * as rimraf from "rimraf";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 describe("FileUtils Tests", () => {
@@ -187,14 +186,8 @@ describe("FileUtils Tests", () => {
         expect(fs.existsSync("tests-fileutils-copydir-src")).toBe(true);
         expect(fs.existsSync("tests-fileutils-copydir-src/test.txt")).toBe(true);
 
-        // Pre-create the destination directory. `copyDirectory`'s internal `files.forEach(async ...)` does not
-        // await each iteration, so the nested `subdir` entry may otherwise attempt `fs.mkdirSync` before the
-        // top-level destination directory exists (a pre-existing race in the source, not something to fix here).
-        fs.mkdirSync("tests-fileutils-copydir-dest", { recursive: true });
-
         // Copy the directory
         await FileUtils.copyDirectory("tests-fileutils-copydir-src", "tests-fileutils-copydir-dest", {}, ["bak"], ["bin"]);
-        await sleep(100);
 
         // Verify the operation succeeded
         expect(fs.existsSync("tests-fileutils-copydir-dest")).toBe(true);
@@ -214,7 +207,6 @@ describe("FileUtils Tests", () => {
             ["bin"],
             true
         );
-        await sleep(100);
         expect(fs.existsSync("tests-fileutils-copydir-dest/test.txt")).toBe(true);
     });
 
@@ -223,6 +215,30 @@ describe("FileUtils Tests", () => {
         fs.mkdirSync(rootDir, { recursive: true });
         try {
             await FileUtils.copyDirectory("tests-fileutils", "tests-fileutils.copy2", {}, [], [], false, rootDir);
+            throw new Error("Failed to throw error.");
+        } catch (err: any) {
+            expect(err.message).toContain("escapes the allowed root directory");
+        }
+    });
+
+    it("copyDirectory throws when a templated destination path escapes rootDir.", async () => {
+        const rootDir = path.resolve("tests-fileutils-root");
+        const srcDir = path.join(rootDir, "escape-src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        // The file name itself contains a template token whose substituted value walks the resolved
+        // destination path back outside of rootDir, even though the top-level outPath is contained within it.
+        fs.writeFileSync(path.join(srcDir, "{{esc}}.txt"), "This is a test.");
+
+        try {
+            await FileUtils.copyDirectory(
+                srcDir,
+                path.join(rootDir, "escape-dest"),
+                { esc: "../../outside-root" },
+                [],
+                [],
+                false,
+                rootDir
+            );
             throw new Error("Failed to throw error.");
         } catch (err: any) {
             expect(err.message).toContain("escapes the allowed root directory");

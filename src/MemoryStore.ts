@@ -55,8 +55,16 @@ export class MemoryStore {
     }
 
     public async save(id: string, data: Record<string, any>, ttlSeconds: number = this.defaultTTL): Promise<void> {
-        if (this.entries.size > this.maxSize) {
-            this.entries.clear();
+        if (!this.entries.has(id) && this.entries.size >= this.maxSize) {
+            // Reclaim space by sweeping expired entries first, then evicting the oldest surviving entries
+            this.sweep();
+            while (this.entries.size >= this.maxSize) {
+                const oldestId: string | undefined = this.entries.keys().next().value;
+                if (oldestId === undefined) {
+                    break;
+                }
+                this.entries.delete(oldestId);
+            }
         }
         this.entries.set(id, { data, expiresAt: Date.now() + ttlSeconds * 1000 });
     }
