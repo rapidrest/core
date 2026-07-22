@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rapidrest/core/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/rapidrest/core/actions/workflows/build.yml)
 [![Coverage Status](https://coveralls.io/repos/github/rapidrest/core/badge.svg?branch=main)](https://coveralls.io/github/rapidrest/core?branch=main)
-[![Tags](https://img.shields.io/github/v/release/rapidrest/core)](https://github.com/rapidrest/core/tags)
+[![npm version](https://img.shields.io/npm/v/@rapidrest/core)](https://www.npmjs.com/package/@rapidrest/core)
 
 A set of common utilities shared amongst all RapidREST based applications and servers.
 
