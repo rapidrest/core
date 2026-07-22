@@ -158,7 +158,7 @@ describe("MemoryStore Tests", () => {
             store = new MemoryStore();
             store.maxSize = 0;
 
-            await expect(store.save("id1", { n: 1 })).toBeUndefined();
+            expect(store.save("id1", { n: 1 })).toBeUndefined();
             expect(store.load("id1")).toEqual({ n: 1 });
         });
     });
@@ -173,7 +173,7 @@ describe("MemoryStore Tests", () => {
 
         it("Does not throw when deleting an id that was never saved.", async () => {
             store = new MemoryStore();
-            await expect(store.delete("missing")).toBeUndefined();
+            expect(store.delete("missing")).toBeUndefined();
         });
     });
 
