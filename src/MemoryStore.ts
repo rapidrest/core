@@ -54,7 +54,7 @@ export class MemoryStore {
         return entry.data;
     }
 
-    public async save(id: string, data: Record<string, any>, ttlSeconds: number = this.defaultTTL): Promise<void> {
+    public save(id: string, data: Record<string, any>, ttlSeconds: number = this.defaultTTL): void {
         if (!this.entries.has(id) && this.entries.size >= this.maxSize) {
             // Reclaim space by sweeping expired entries first, then evicting the oldest surviving entries
             this.sweep();
@@ -69,7 +69,7 @@ export class MemoryStore {
         this.entries.set(id, { data, expiresAt: Date.now() + ttlSeconds * 1000 });
     }
 
-    public async delete(id: string): Promise<void> {
+    public delete(id: string): void {
         this.entries.delete(id);
     }
 

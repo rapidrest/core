@@ -29,14 +29,14 @@ describe("MemoryStore Tests", () => {
 
         it("Returns the stored data for a valid, non-expired entry.", async () => {
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" });
+            store.save("id1", { foo: "bar" });
             expect(store.load("id1")).toEqual({ foo: "bar" });
         });
 
         it("Removes and returns undefined once an entry's TTL has expired.", async () => {
             vi.useFakeTimers();
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" }, 1);
+            store.save("id1", { foo: "bar" }, 1);
 
             vi.advanceTimersByTime(1001);
 
@@ -48,7 +48,7 @@ describe("MemoryStore Tests", () => {
         it("Still returns the data one millisecond before the TTL boundary.", async () => {
             vi.useFakeTimers();
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" }, 1);
+            store.save("id1", { foo: "bar" }, 1);
 
             vi.advanceTimersByTime(999);
 
@@ -58,7 +58,7 @@ describe("MemoryStore Tests", () => {
         it("Treats the exact expiry instant (expiresAt === now) as expired, per the <= comparison.", async () => {
             vi.useFakeTimers();
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" }, 1);
+            store.save("id1", { foo: "bar" }, 1);
 
             vi.advanceTimersByTime(1000);
 
@@ -68,7 +68,7 @@ describe("MemoryStore Tests", () => {
         it("Returns the same object reference that was saved, without cloning.", async () => {
             store = new MemoryStore();
             const data = { foo: "bar" };
-            await store.save("id1", data);
+            store.save("id1", data);
             expect(store.load("id1")).toBe(data);
         });
     });
@@ -79,7 +79,7 @@ describe("MemoryStore Tests", () => {
             const now = Date.now();
             store = new MemoryStore();
 
-            await store.save("id1", { foo: "bar" });
+            store.save("id1", { foo: "bar" });
 
             const entry = (store as any).entries.get("id1");
             expect(entry.expiresAt).toBe(now + store.defaultTTL * 1000);
@@ -90,7 +90,7 @@ describe("MemoryStore Tests", () => {
             const now = Date.now();
             store = new MemoryStore();
 
-            await store.save("id1", { foo: "bar" }, 5);
+            store.save("id1", { foo: "bar" }, 5);
 
             const entry = (store as any).entries.get("id1");
             expect(entry.expiresAt).toBe(now + 5000);
@@ -98,14 +98,14 @@ describe("MemoryStore Tests", () => {
 
         it("A ttlSeconds of 0 produces an entry that is immediately expired.", async () => {
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" }, 0);
+            store.save("id1", { foo: "bar" }, 0);
             expect(store.load("id1")).toBeUndefined();
         });
 
         it("Overwrites an existing entry with the same id.", async () => {
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" });
-            await store.save("id1", { foo: "baz" });
+            store.save("id1", { foo: "bar" });
+            store.save("id1", { foo: "baz" });
             expect(store.load("id1")).toEqual({ foo: "baz" });
         });
 
@@ -113,12 +113,12 @@ describe("MemoryStore Tests", () => {
             store = new MemoryStore();
             store.maxSize = 2;
 
-            await store.save("id1", { n: 1 });
-            await store.save("id2", { n: 2 });
+            store.save("id1", { n: 1 });
+            store.save("id2", { n: 2 });
             expect((store as any).entries.size).toBe(2);
 
             // Adding a third distinct id at capacity evicts only the oldest (id1), not the whole map.
-            await store.save("id3", { n: 3 });
+            store.save("id3", { n: 3 });
             expect((store as any).entries.size).toBe(2);
             expect(store.load("id1")).toBeUndefined();
             expect(store.load("id2")).toEqual({ n: 2 });
@@ -130,12 +130,12 @@ describe("MemoryStore Tests", () => {
             store = new MemoryStore();
             store.maxSize = 2;
 
-            await store.save("expired", { n: 1 }, 1);
-            await store.save("alive", { n: 2 }, 120);
+            store.save("expired", { n: 1 }, 1);
+            store.save("alive", { n: 2 }, 120);
             vi.advanceTimersByTime(1001);
 
             // At capacity, but "expired" is stale: sweeping it should free a slot without evicting "alive".
-            await store.save("id3", { n: 3 });
+            store.save("id3", { n: 3 });
             expect((store as any).entries.size).toBe(2);
             expect(store.load("alive")).toEqual({ n: 2 });
             expect(store.load("id3")).toEqual({ n: 3 });
@@ -145,9 +145,9 @@ describe("MemoryStore Tests", () => {
             store = new MemoryStore();
             store.maxSize = 2;
 
-            await store.save("id1", { n: 1 });
-            await store.save("id2", { n: 2 });
-            await store.save("id1", { n: 99 });
+            store.save("id1", { n: 1 });
+            store.save("id2", { n: 2 });
+            store.save("id1", { n: 99 });
 
             expect((store as any).entries.size).toBe(2);
             expect(store.load("id1")).toEqual({ n: 99 });
@@ -158,7 +158,7 @@ describe("MemoryStore Tests", () => {
             store = new MemoryStore();
             store.maxSize = 0;
 
-            await expect(store.save("id1", { n: 1 })).resolves.toBeUndefined();
+            await expect(store.save("id1", { n: 1 })).toBeUndefined();
             expect(store.load("id1")).toEqual({ n: 1 });
         });
     });
@@ -166,14 +166,14 @@ describe("MemoryStore Tests", () => {
     describe("delete", () => {
         it("Removes an existing entry.", async () => {
             store = new MemoryStore();
-            await store.save("id1", { foo: "bar" });
-            await store.delete("id1");
+            store.save("id1", { foo: "bar" });
+            store.delete("id1");
             expect(store.load("id1")).toBeUndefined();
         });
 
         it("Does not throw when deleting an id that was never saved.", async () => {
             store = new MemoryStore();
-            await expect(store.delete("missing")).resolves.toBeUndefined();
+            await expect(store.delete("missing")).toBeUndefined();
         });
     });
 
@@ -182,8 +182,8 @@ describe("MemoryStore Tests", () => {
             vi.useFakeTimers();
             store = new MemoryStore();
 
-            await store.save("expired", { n: 1 }, 1);
-            await store.save("alive", { n: 2 }, 120);
+            store.save("expired", { n: 1 }, 1);
+            store.save("alive", { n: 2 }, 120);
 
             // Advance past the entry's own TTL, then past the 60s sweep interval, without calling load() first,
             // so the removal can only be attributed to the internal sweep() timer, not load()'s own expiry check.
@@ -209,7 +209,7 @@ describe("MemoryStore Tests", () => {
         it("Prevents further sweeps from running once destroyed.", async () => {
             vi.useFakeTimers();
             store = new MemoryStore();
-            await store.save("expired", { n: 1 }, 1);
+            store.save("expired", { n: 1 }, 1);
 
             store.destroy();
             vi.advanceTimersByTime(1001);
