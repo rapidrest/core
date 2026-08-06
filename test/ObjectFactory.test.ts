@@ -11,6 +11,8 @@ import { CircularClassB } from "./factory/CircularClassB.js";
 import { ClassC } from "./factory/ClassC.js";
 import { ClassD } from "./factory/ClassD.js";
 import { v4 as uuidV4 } from "uuid";
+import { Writable } from "stream";
+import winston from "winston";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 class TestClassA {
     @Destroy
@@ -42,6 +44,15 @@ class TestClassConfigWhole {
 class TestClassWithLogger {
     @LoggerDecorator
     public logger?: any;
+}
+
+class TestClassLoggerOutput {
+    @LoggerDecorator
+    public logger?: any;
+
+    public doWork(): void {
+        this.logger.info("Listening on 0.0.0.0:3000...");
+    }
 }
 
 class AsyncInitClass {
@@ -428,6 +439,45 @@ describe("ObjectFactory Tests", () => {
     it("initialize() injects the logger for a @Logger-decorated property.", async () => {
         const instance: any = await factory.newInstance(TestClassWithLogger, { name: "default" });
         expect(instance.logger).toBeDefined();
+        // newInstance() always assigns an instance _fqn, so the injected logger should be an fqn-bound child
+        // logger rather than the factory's raw shared logger instance.
+        expect(instance.logger).not.toBe((factory as any).logger);
+    });
+
+    it("initialize() injects the factory's raw logger (not an fqn-bound child) for an object with no _fqn.", async () => {
+        const instance = new TestClassWithLogger();
+        await factory.initialize(instance);
+        expect(instance.logger).toBe((factory as any).logger);
+    });
+
+    it("A @Logger-decorated instance logs with a [_fqn.method] prefix derived from its ObjectFactory _fqn.", async () => {
+        // Capture the fully-formatted output by attaching an extra Stream transport to the real logger, rather
+        // than trying to intercept console/stdout (which winston/Node bind in ways that don't play well with
+        // spies under Vitest's test environment).
+        const chunks: string[] = [];
+        const captureStream = new Writable({
+            write(chunk, _encoding, callback) {
+                chunks.push(chunk.toString());
+                callback();
+            },
+        });
+        const logger = Logger();
+        const captureTransport = new winston.transports.Stream({ stream: captureStream });
+        logger.add(captureTransport);
+        try {
+            const localFactory = new ObjectFactory(config, logger);
+            localFactory.register(TestClassLoggerOutput);
+            const instance: TestClassLoggerOutput = await localFactory.newInstance(TestClassLoggerOutput, {
+                name: "default",
+            });
+            instance.doWork();
+
+            const output = chunks.join("");
+            expect(output).toContain(`[${TestClassLoggerOutput.name}.doWork] `);
+            expect(output).toContain("Listening on 0.0.0.0:3000...");
+        } finally {
+            logger.remove(captureTransport);
+        }
     });
 
     it("Successfully injects a dependency whose own initialization is asynchronous.", async () => {

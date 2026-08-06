@@ -203,7 +203,7 @@ export class ObjectFactory {
         }
 
         for (const member of meta.injectLogger) {
-            obj[member] = this.logger;
+            obj[member] = obj._fqn ? this.logger.child({ fqn: obj._fqn }) : this.logger;
         }
 
         for (const { member, type, options } of meta.injectObject) {
