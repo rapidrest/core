@@ -17,6 +17,11 @@ export interface JWTUser {
     uid: string;
 
     /**
+     * Indicates if the user has elevated privileges.
+     */
+    elevated?: boolean;
+
+    /**
      * The list of roles (by name) that the user is a member of and will inherit the permissions of.
      */
     roles: string[];
