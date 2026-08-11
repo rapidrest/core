@@ -95,7 +95,9 @@ export class ValidationUtils {
      * Validates that the provided object is not null or empty.
      */
     public static checkNull(val: any): any {
-        if (typeof val !== "boolean" && !val) {
+        // `0` is a valid, non-null value (matching `ObjectUtils.validate`'s own nullable convention), so numbers
+        // are excluded from the falsy check alongside booleans.
+        if (typeof val !== "boolean" && typeof val !== "number" && !val) {
             throw new Error("Value cannot be null.");
         }
         return val;
@@ -146,6 +148,9 @@ export class ValidationUtils {
      */
     public static checkVersion(val: any): number {
         const num: number = Number(val);
+        if (isNaN(num)) {
+            throw new Error("Value is not a valid version number.");
+        }
         return Math.max(num, 0);
     }
 }

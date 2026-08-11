@@ -190,6 +190,14 @@ export class ThreadPool {
     public start(options?: WorkerOptions, num: number = this.max): Promise<void> {
         this.shutdown = false;
 
+        // Terminate any workers left over from a previous start() call so they aren't leaked (their thread and
+        // listeners would otherwise become unreachable once `this.workers[i]` is overwritten below).
+        for (const worker of this.workers) {
+            worker.removeAllListeners();
+            void worker.terminate();
+        }
+        this.workers.length = 0;
+
         return new Promise((resolve, reject) => {
             let numReady: number = 0;
             if (!options) {
@@ -197,16 +205,34 @@ export class ThreadPool {
             }
             options.allowTs = "allowTs" in options ? options.allowTs : true;
 
-            for (let i = 0; i < num && i < this.maxThreads; i++) {
+            const target = Math.min(num, this.maxThreads);
+            if (target <= 0) {
+                // Nothing to create; resolve immediately instead of hanging forever waiting for readiness signals
+                // that will never arrive.
+                this.logger?.debug("No worker threads to create.");
+                resolve();
+                return;
+            }
+
+            for (let i = 0; i < target; i++) {
                 const worker: Worker = this.createWorker(i, options);
+                let ready = false;
                 worker.on("online", () => {
                     if (options && !options.worker) {
+                        ready = true;
                         numReady++;
                     }
 
                     // When all workers have finished being created resolve
-                    if (numReady >= num || numReady >= this.maxThreads) {
+                    if (numReady >= target) {
                         resolve();
+                    }
+                });
+                // If a worker fails to start before it ever reaches readiness, reject instead of leaving the
+                // returned promise hanging forever.
+                worker.on("error", (error) => {
+                    if (!ready) {
+                        reject(error);
                     }
                 });
                 worker.on("message", (msg: any) => {
@@ -215,12 +241,13 @@ export class ThreadPool {
                             reject(msg.data);
                             break;
                         case WorkerMessageType.ONLINE:
+                            ready = true;
                             numReady++;
                             break;
                     }
 
                     // When all workers have finished being created resolve
-                    if (numReady >= num || numReady >= this.maxThreads) {
+                    if (numReady >= target) {
                         resolve();
                     }
                 });
@@ -243,16 +270,19 @@ export class ThreadPool {
         // Give the message above a chance to propogate
         await sleep(10);
 
-        for (let idx = 0; idx < this.workers.length; idx++) {
-            const worker: Worker = this.workers[idx];
-            const exitCode: number = await worker.terminate();
+        // Terminate all workers concurrently so shutdown latency is bounded by the slowest worker rather than
+        // scaling linearly with pool size.
+        await Promise.all(
+            this.workers.map(async (worker, idx) => {
+                const exitCode: number = await worker.terminate();
 
-            if (listeners) {
-                for (const callback of listeners) {
-                    callback(idx, exitCode);
+                if (listeners) {
+                    for (const callback of listeners) {
+                        callback(idx, exitCode);
+                    }
                 }
-            }
-        }
+            }),
+        );
 
         // Drop all terminated workers so `size`/`send()` don't keep referencing dead workers across a
         // subsequent start()/stop() cycle. `workers` is a `readonly` array reference, so it's truncated in place.

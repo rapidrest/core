@@ -9,17 +9,35 @@
 export class NotificationUtils {
     /** The redis client to use for broadcasting messages. */
     private redis: any;
+    /** The logging utility to use. */
+    private logger?: any;
 
     /**
      * Initializes the utility using the given redis connection.
      *
      * @param {any} redis The redis connection to publish to.
+     * @param {any} logger The logging utility to use.
      */
-    constructor(redis: any) {
+    constructor(redis: any, logger?: any) {
         if (!redis) {
             throw new Error("redis argument is required.");
         }
         this.redis = redis;
+        this.logger = logger;
+    }
+
+    /**
+     * Publishes to the given redis channel, logging (rather than crashing the process via an unhandled rejection)
+     * if the underlying client's `publish()` rejects.
+     */
+    private publish(channel: string, payload: string): void {
+        const result: any = this.redis?.publish(channel, payload);
+        if (result && typeof result.catch === "function") {
+            result.catch((err: any) => {
+                this.logger?.error(`Failed to publish message to channel: ${channel}`);
+                this.logger?.debug(err);
+            });
+        }
     }
 
     /**
@@ -30,7 +48,7 @@ export class NotificationUtils {
      * @param {string} data The contents of the message to send.
      */
     public broadcastMessage(type: any, action: string, data: any): void {
-        void this.redis?.publish("allusers", JSON.stringify({ type, action, data }));
+        this.publish("allusers", JSON.stringify({ type, action, data }));
     }
 
     /**
@@ -46,10 +64,10 @@ export class NotificationUtils {
         const payload = JSON.stringify({ type, action, data });
         if (Array.isArray(uids)) {
             for (const uid of uids) {
-                void this.redis?.publish(uid, payload);
+                this.publish(uid, payload);
             }
         } else {
-            void this.redis?.publish(uids, payload);
+            this.publish(uids, payload);
         }
     }
 }

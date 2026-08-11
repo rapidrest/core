@@ -87,7 +87,7 @@ export class UserUtils {
                 if (Array.isArray(user.roles)) {
                     result = user.roles.includes(role);
 
-                    if (!result && orgUid !== "") {
+                    if (!result && orgUid) {
                         result = user.roles.includes(`${orgUid}.${role}`);
                     }
                 }

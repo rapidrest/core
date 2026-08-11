@@ -7,10 +7,6 @@ const { format, transports } = winston;
 const { combine, timestamp, printf } = format;
 export const FILENAME = fileURLToPath(import.meta.url).replace(/\\/g, "/");
 
-// The default stack trace limit (10) is too shallow once a few frames of winston/logform internals are on the
-// stack, causing the real caller frame that `source()` below looks for to be truncated. Widen it so the caller is
-// always captured.
-Error.stackTraceLimit = Math.max(Error.stackTraceLimit, 30);
 export const logFormat = printf((info: any) => {
     const prefix = info.source ? `[${info.source}] ` : "";
     return `${prefix}${info.timestamp} ${info.level}: ${info.message}`;
@@ -26,7 +22,14 @@ export const logFormat = printf((info: any) => {
  * call stack in either case.
  */
 export const source = format((info: any) => {
+    // The default stack trace limit (10) is too shallow once a few frames of winston/logform internals are on
+    // the stack, causing the real caller frame below to be truncated. The limit is widened only for the duration
+    // of this capture (rather than mutated globally for the whole process) so every other `Error` thrown
+    // anywhere in the application doesn't pay the cost of a permanently-widened trace.
+    const originalStackTraceLimit = Error.stackTraceLimit;
+    Error.stackTraceLimit = Math.max(originalStackTraceLimit, 30);
     const stack = new Error().stack?.split("\n") ?? [];
+    Error.stackTraceLimit = originalStackTraceLimit;
     for (const line of stack) {
         if (line.includes(FILENAME) || line.includes("node_modules") || line.includes("node:internal")) {
             continue;

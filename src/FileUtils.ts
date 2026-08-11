@@ -104,21 +104,11 @@ const logger = Logger();
             throw new Error("File does not exist: " + srcPathFull);
         }
 
-        // Make sure the path leading to the final destination exists
-        let outDirPath = path.dirname(outPath);
-        if (!fs.existsSync(outDirPath)) {
-            await mkdirp(outDirPath);
-        }
-
         let template = fs.readFileSync(srcPathFull, "utf-8");
-        if (template) {
-            let output = StringUtils.findAndReplace(template, variables);
-            let outPathFinal = path.resolve(StringUtils.findAndReplace(outPath, variables));
-            logger.info("Writing: " + outPathFinal);
-            await FileUtils.writeFile(srcPath, outPathFinal, output, overwrite, rootDir);
-        } else {
-            throw new Error("Failed to read file: " + srcPathFull);
-        }
+        let output = StringUtils.findAndReplace(template, variables);
+        let outPathFinal = path.resolve(StringUtils.findAndReplace(outPath, variables));
+        logger.info("Writing: " + outPathFinal);
+        await FileUtils.writeFile(srcPath, outPathFinal, output, overwrite, rootDir);
     }
 
     /**
@@ -141,16 +131,18 @@ const logger = Logger();
             throw new Error("File does not exist: " + srcPathFull);
         }
 
-        // Make sure the path leading to the final destination exists
-        let outDirPath = path.resolve(path.dirname(outPath));
-        if (!fs.existsSync(outDirPath)) {
-            await mkdirp(outDirPath);
-        }
-
         let outPathFinal: string = path.resolve(StringUtils.findAndReplace(outPath, variables));
 
         if (rootDir) {
             FileUtils.assertContained(rootDir, outPathFinal);
+        }
+
+        // Make sure the path leading to the final (template-substituted) destination exists. Must be derived from
+        // `outPathFinal`, not the raw `outPath`, otherwise the created directory can differ from the one actually
+        // written to whenever `outPath`'s directory itself contains template variables.
+        let outDirPath = path.dirname(outPathFinal);
+        if (!fs.existsSync(outDirPath)) {
+            await mkdirp(outDirPath);
         }
 
         fs.copyFileSync(srcPathFull, outPathFinal);

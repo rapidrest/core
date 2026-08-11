@@ -37,8 +37,10 @@ export class ObjectUtils {
                     delete obj[member];
                 }
 
-                // If recursion is requested, process the child object
-                if (recurse && typeof obj[member] === "object") {
+                // If recursion is requested, process the child object. `obj[member] !== null` is required since
+                // `typeof null === "object"` in JS, and recursing into `null` would throw inside
+                // `Object.getOwnPropertyNames`.
+                if (recurse && obj[member] !== null && typeof obj[member] === "object") {
                     ObjectUtils.deleteScopedProps(obj[member], user, undefined, recurse);
                 }
             }
@@ -81,8 +83,10 @@ export class ObjectUtils {
                     }
                 }
 
-                // If recursion is requested validate the child object
-                if (recurse && typeof obj[member] === "object") {
+                // If recursion is requested validate the child object. `obj[member] !== null` is required since
+                // `typeof null === "object"` in JS, and recursing into `null` would throw inside
+                // `Object.getOwnPropertyNames`.
+                if (recurse && obj[member] !== null && typeof obj[member] === "object") {
                     ObjectUtils.validate(obj[member], undefined, recurse);
                 }
             }

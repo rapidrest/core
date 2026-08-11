@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-import crypto from "crypto";
+import crypto, { KeyObject } from "crypto";
 import jwt from "jsonwebtoken";
 import zlib from "zlib";
 
@@ -159,13 +159,20 @@ export class JWTUtils {
      * @param config The JWT configuration to validate.
      */
     private static assertSafeAlgorithm(config: JWTUtilsConfig): void {
-        const secret = config.secret;
+        const secret: any = config.secret;
         const pemPattern = /-----BEGIN [A-Z ]*(PRIVATE|PUBLIC) KEY-----/;
         // `fs.readFileSync()` - the idiomatic way to load a key file - returns a Buffer, not a string, so both
         // representations must be checked or the guard below is trivially bypassed.
-        const looksAsymmetric =
+        const isPemLike =
             (typeof secret === "string" && pemPattern.test(secret)) ||
             (Buffer.isBuffer(secret) && pemPattern.test(secret.toString("utf8")));
+        // `jwt.Secret` also allows a `KeyObject` (e.g. from `crypto.createPrivateKey()`) or a
+        // `{ key, passphrase }` encrypted-PEM wrapper, neither of which are strings/Buffers - both must be
+        // detected too or this guard is trivially bypassed by using either form.
+        const isAsymmetricKeyObject = secret instanceof KeyObject && secret.type !== "secret";
+        const isPassphraseWrappedKey =
+            !!secret && typeof secret === "object" && !Buffer.isBuffer(secret) && "key" in secret && "passphrase" in secret;
+        const looksAsymmetric = isPemLike || isAsymmetricKeyObject || isPassphraseWrappedKey;
         if (looksAsymmetric && (!config.options?.algorithms || config.options.algorithms.length === 0)) {
             throw new Error(
                 "config.secret appears to be an asymmetric key. config.options.algorithms must be explicitly set " +
@@ -198,6 +205,46 @@ export class JWTUtils {
         return crypto.scryptSync(password, salt, 24);
     }
 
+    /**
+     * Encrypts `plaintext` for `publicKey` using hybrid encryption: `plaintext` is encrypted with a fresh
+     * AES-256-GCM key, which is itself wrapped with RSA. This avoids `crypto.publicEncrypt`'s fixed plaintext-size
+     * limit (e.g. ~214 bytes for a 2048-bit key with OAEP padding), which a raw JSON user profile easily exceeds.
+     *
+     * @param publicKey The RSA public key to wrap the AES key with.
+     * @param plaintext The data to encrypt.
+     * @returns The encrypted data, encoded as `<wrapped-key>.<iv>.<authTag>.<ciphertext>`, all base64.
+     */
+    private static hybridEncrypt(publicKey: string, plaintext: string): string {
+        const aesKey: Buffer = crypto.randomBytes(32);
+        const iv: Buffer = crypto.randomBytes(12);
+        const cipher = crypto.createCipheriv("aes-256-gcm", aesKey, iv);
+        let ciphertext: string = cipher.update(plaintext, "utf8", "base64");
+        ciphertext += cipher.final("base64");
+        const authTag: Buffer = cipher.getAuthTag();
+        const wrappedKey: Buffer = crypto.publicEncrypt(publicKey, aesKey);
+        return [wrappedKey.toString("base64"), iv.toString("base64"), authTag.toString("base64"), ciphertext].join(
+            ".",
+        );
+    }
+
+    /**
+     * Decrypts data produced by `hybridEncrypt`.
+     *
+     * @param privateKey The RSA private key to unwrap the AES key with.
+     * @param encoded The encrypted data, as produced by `hybridEncrypt`.
+     */
+    private static hybridDecrypt(privateKey: string, encoded: string): string {
+        const [wrappedKeyB64, ivB64, authTagB64, ciphertext] = encoded.split(".");
+        const aesKey: Buffer = crypto.privateDecrypt(privateKey, Buffer.from(wrappedKeyB64, "base64"));
+        const iv: Buffer = Buffer.from(ivB64, "base64");
+        const authTag: Buffer = Buffer.from(authTagB64, "base64");
+        const decipher = crypto.createDecipheriv("aes-256-gcm", aesKey, iv);
+        decipher.setAuthTag(authTag);
+        let decrypted: string = decipher.update(ciphertext, "base64", "utf8");
+        decrypted += decipher.final("utf8");
+        return decrypted;
+    }
+
     public static async createToken(config: JWTUtilsConfig, user: JWTUser, data?: any): Promise<string> {
         // Validate the required config options
         if (!config.secret) {
@@ -213,13 +260,22 @@ export class JWTUtils {
         // silently override the authoritative, server-derived user profile before signing.
         let payload: any = { ...data, profile: JSON.stringify(user) };
 
+        // Compress the profile if desired. Done *before* encryption so encryption (and, for RSA, its fixed
+        // plaintext-size limit) operates on the smaller compressed representation rather than the raw JSON.
+        if (config.payload && config.payload.compress) {
+            if (config.payload.compress === JWTUtilsCompressionMethods.ZLIB) {
+                const buf: Buffer = Buffer.from(payload.profile, "utf-8");
+                payload.profile = zlib.gzipSync(buf).toString("base64");
+                payload.compression = "zlib";
+            }
+        }
+
         // Encrypt the profile if desired
         if (config.payload && config.payload.encrypt) {
             const payloadOptions: any = config.payload;
             if (payloadOptions.public_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const encrypted: Buffer = crypto.publicEncrypt(keyOptions.public_key, Buffer.from(payload.profile));
-                payload.profile = encrypted.toString("base64");
+                payload.profile = JWTUtils.hybridEncrypt(keyOptions.public_key, payload.profile);
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
@@ -232,15 +288,6 @@ export class JWTUtils {
                 payload.profile = salt.toString("base64") + ":" + encrypted;
             }
             payload.encryption = true;
-        }
-
-        // Compress the profile if desired
-        if (config.payload && config.payload.compress) {
-            if (config.payload.compress === JWTUtilsCompressionMethods.ZLIB) {
-                const buf: Buffer = Buffer.from(payload.profile, "utf-8");
-                payload.profile = zlib.gzipSync(buf).toString("base64");
-                payload.compression = "zlib";
-            }
         }
 
         JWTUtils.assertSafeAlgorithm(config);
@@ -262,13 +309,22 @@ export class JWTUtils {
         // silently override the authoritative, server-derived user profile before signing.
         let payload: any = { ...data, profile: JSON.stringify(user) };
 
+        // Compress the profile if desired. Done *before* encryption so encryption (and, for RSA, its fixed
+        // plaintext-size limit) operates on the smaller compressed representation rather than the raw JSON.
+        if (config.payload && config.payload.compress) {
+            if (config.payload.compress === JWTUtilsCompressionMethods.ZLIB) {
+                const buf: Buffer = Buffer.from(payload.profile, "utf-8");
+                payload.profile = zlib.gzipSync(buf).toString("base64");
+                payload.compression = "zlib";
+            }
+        }
+
         // Encrypt the profile if desired
         if (config.payload && config.payload.encrypt) {
             const payloadOptions: any = config.payload;
             if (payloadOptions.public_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const encrypted: Buffer = crypto.publicEncrypt(keyOptions.public_key, Buffer.from(payload.profile));
-                payload.profile = encrypted.toString("base64");
+                payload.profile = JWTUtils.hybridEncrypt(keyOptions.public_key, payload.profile);
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
@@ -281,15 +337,6 @@ export class JWTUtils {
                 payload.profile = salt.toString("base64") + ":" + encrypted;
             }
             payload.encryption = true;
-        }
-
-        // Compress the profile if desired
-        if (config.payload && config.payload.compress) {
-            if (config.payload.compress === JWTUtilsCompressionMethods.ZLIB) {
-                const buf: Buffer = Buffer.from(payload.profile, "utf-8");
-                payload.profile = zlib.gzipSync(buf).toString("base64");
-                payload.compression = "zlib";
-            }
         }
 
         JWTUtils.assertSafeAlgorithm(config);
@@ -314,19 +361,13 @@ export class JWTUtils {
             throw new Error("Token is invalid or missing data.");
         }
 
-        // Decompress the payload if desired
-        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
-            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
-            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
-        }
-
-        // Decrypt the payload if desired
+        // Decrypt the payload if desired. Must happen before decompression since compression is applied *before*
+        // encryption when the token is created (see createToken), so decryption must be undone first.
         if (payload.encryption && config.payload && config.payload.encrypt) {
             const payloadOptions: any = config.payload;
             if (payloadOptions.private_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile, "base64"));
-                payload.profile = decrypted.toString("utf8");
+                payload.profile = JWTUtils.hybridDecrypt(keyOptions.private_key, payload.profile);
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
@@ -339,6 +380,12 @@ export class JWTUtils {
                 decrypted += decipher.final("utf8");
                 payload.profile = decrypted;
             }
+        }
+
+        // Decompress the payload if desired
+        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
+            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
+            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
         }
 
         // Make sure the profile is an parsed
@@ -365,19 +412,13 @@ export class JWTUtils {
             throw new Error("Token is invalid or missing data.");
         }
 
-        // Decompress the payload if desired
-        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
-            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
-            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
-        }
-
-        // Decrypt the payload if desired
+        // Decrypt the payload if desired. Must happen before decompression since compression is applied *before*
+        // encryption when the token is created (see createTokenSync), so decryption must be undone first.
         if (payload.encryption && config.payload && config.payload.encrypt) {
             const payloadOptions: any = config.payload;
             if (payloadOptions.private_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                const decrypted: Buffer = crypto.privateDecrypt(keyOptions.private_key, Buffer.from(payload.profile, "base64"));
-                payload.profile = decrypted.toString("utf8");
+                payload.profile = JWTUtils.hybridDecrypt(keyOptions.private_key, payload.profile);
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
@@ -390,6 +431,12 @@ export class JWTUtils {
                 decrypted += decipher.final("utf8");
                 payload.profile = decrypted;
             }
+        }
+
+        // Decompress the payload if desired
+        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
+            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
+            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
         }
 
         // Make sure the profile is an parsed

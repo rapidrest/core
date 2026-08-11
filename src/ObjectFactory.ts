@@ -206,27 +206,32 @@ export class ObjectFactory {
             obj[member] = obj._fqn ? this.logger.child({ fqn: obj._fqn }) : this.logger;
         }
 
+        // Collects both injected-dependency and @Init promises so `initialize()` never returns/resolves before
+        // an async-resolving `@Inject`-ed dependency has actually been assigned to `obj[member]`.
+        const promises: Promise<void>[] = [];
+
         for (const { member, type, options } of meta.injectObject) {
             this.register(type);
             const instance: any = this.newInstance(type, options);
             if (instance instanceof Promise) {
-                instance
-                    .then((val) => {
-                        obj[member] = val;
-                    })
-                    .catch((err) => {
-                        this.logger.error(
-                            `Failed to instantiate dependency. Type=${type}, Parent=${obj._fqn}, Member=${member}`,
-                        );
-                        this.logger.debug(err);
-                    });
+                promises.push(
+                    instance
+                        .then((val) => {
+                            obj[member] = val;
+                        })
+                        .catch((err) => {
+                            this.logger.error(
+                                `Failed to instantiate dependency. Type=${type}, Parent=${obj._fqn}, Member=${member}`,
+                            );
+                            this.logger.debug(err);
+                        }),
+                );
             } else {
                 obj[member] = instance;
             }
         }
 
         // Call any @Init functions
-        const promises: Promise<void>[] = [];
         for (const methodName of meta.initMethods) {
             const result: any = (obj[methodName] as Function).bind(obj)();
             if (result instanceof Promise) {
@@ -292,21 +297,17 @@ export class ObjectFactory {
      */
     // TODO: Investigate name vs fqn
     public getInstance<T>(nameOrType: any): T | undefined {
+        // Make sure we have a valid type name. Must run before `nameOrType` is dereferenced below, otherwise
+        // `getInstance(null)`/`getInstance(undefined)` throw a raw TypeError instead of this intended error.
+        if (!nameOrType) {
+            throw new Error("No valid nameOrType was specified.");
+        }
+
         let search: string = "";
         if (typeof nameOrType === "string") {
             search = nameOrType;
         } else {
-            search =
-                nameOrType && nameOrType.name
-                    ? nameOrType.name
-                    : nameOrType.constructor
-                      ? nameOrType.constructor.name
-                      : search;
-        }
-
-        // Make sure we have a valid type name
-        if (!nameOrType) {
-            throw new Error("No valid nameOrType was specified.");
+            search = nameOrType.name ? nameOrType.name : nameOrType.constructor ? nameOrType.constructor.name : search;
         }
 
         // First search for the exact name or with `:default`

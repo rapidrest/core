@@ -56,4 +56,18 @@ describe("NotificationUtils Tests.", () => {
         expect(() => notifications.sendMessage("user1", "alert", "created", {})).not.toThrow();
         expect(() => notifications.sendMessage(["user1", "user2"], "alert", "created", {})).not.toThrow();
     });
+
+    it("Logs (rather than crashing via an unhandled rejection) when publish() rejects.", async () => {
+        const logger = { error: vi.fn(), debug: vi.fn() };
+        const err = new Error("connection lost");
+        const redis = { publish: vi.fn().mockRejectedValue(err) };
+        const notifications = new NotificationUtils(redis, logger);
+
+        notifications.broadcastMessage("alert", "created", { foo: "bar" });
+        // Let the rejected publish() promise's .catch() handler run.
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(logger.error).toHaveBeenCalledWith("Failed to publish message to channel: allusers");
+        expect(logger.debug).toHaveBeenCalledWith(err);
+    });
 });

@@ -145,7 +145,7 @@ export class AlertUtils {
                 data.source = data.source.substring(0, MAX_CHARS_SOURCE);
             }
 
-            const url: string = `${this.serviceUrl}/${id}/close`;
+            const url: string = `${this.serviceUrl}/${encodeURIComponent(id)}/close`;
             const response: AxiosResponse = await axios.post(url, data, {
                 headers: {
                     Authorization: this.auth,
@@ -153,8 +153,8 @@ export class AlertUtils {
             });
             return response.status >= 200 && response.status < 300;
         } catch (err: any) {
-            this.logger.error("Failed to close alert with id " + id);
-            this.logger.error(err.message);
+            this.logger?.error("Failed to close alert with id " + id);
+            this.logger?.error(err.message);
             return false;
         }
     }
@@ -166,7 +166,7 @@ export class AlertUtils {
      */
     public async get(id: string): Promise<Alert | null> {
         try {
-            const url: string = `${this.serviceUrl}/${id}`;
+            const url: string = `${this.serviceUrl}/${encodeURIComponent(id)}`;
             const response: AxiosResponse = await axios.get(url, {
                 headers: {
                     Authorization: this.auth,
@@ -178,8 +178,8 @@ export class AlertUtils {
                 ? response.data
                 : /* v8 ignore next */ null;
         } catch (err: any) {
-            this.logger.error("Failed to retrieve alert with id " + id);
-            this.logger.error(err.message);
+            this.logger?.error("Failed to retrieve alert with id " + id);
+            this.logger?.error(err.message);
             return null;
         }
     }
@@ -242,20 +242,18 @@ export class AlertUtils {
             let count: number = 0;
             while (!id && count < MAX_ATTEMPTS) {
                 try {
-                    const url: string = `${this.serviceUrl}/requests/${requestId}`;
+                    const url: string = `${this.serviceUrl}/requests/${encodeURIComponent(requestId)}`;
                     const response: AxiosResponse = await axios.get(url, {
                         headers: {
                             Authorization: this.auth,
                         }
                     });
-                    // axios's default validateStatus already rejects (throws) any non-2xx response before we get
-                    // here, so the implicit else below is unreachable under normal operation; kept as defense in
-                    // depth.
-                    /* v8 ignore else */
-                    if (response.status >= 200 && response.status < 300) {
-                        if (response.data.success && response.data.alertId) {
-                            id = response.data.alertId;
-                        }
+                    if (response.data.success && response.data.alertId) {
+                        id = response.data.alertId;
+                    } else {
+                        // Request accepted but not finished processing yet. Wait a second before retrying instead
+                        // of hot-looping.
+                        await sleep(1000);
                     }
                 } catch (err: any) {
                     // We get here when the request isn't finished processing yet. OpsGenie's API is... meh.
@@ -313,9 +311,9 @@ export class AlertUtils {
                 knownLength: attachment.size
             });
 
-            let url: string = `${this.serviceUrl}/${id}/attachments`;
+            let url: string = `${this.serviceUrl}/${encodeURIComponent(id)}/attachments`;
             if (indexFile) {
-                url += "?indexFile=" + indexFile;
+                url += "?indexFile=" + encodeURIComponent(indexFile);
             }
             const response: AxiosResponse = await axios.post(url, form, {
                 headers: {

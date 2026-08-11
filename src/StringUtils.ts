@@ -62,11 +62,16 @@ export class StringUtils {
                 let value: string = variables[key] as string;
                 for (const key2 in variables) {
                     if (variables[key2]) {
-                        value = value.toString().replace(regexCache.get(key2)!, variables[key2] as string);
+                        // A function replacer is used (rather than passing the value directly as the second
+                        // argument) so a value containing `$`-sequences (`$&`, `$$`, `$1`, ...) is inserted
+                        // literally instead of being interpreted by `String.replace` as a special pattern.
+                        const replacement2 = variables[key2] as string;
+                        value = value.toString().replace(regexCache.get(key2)!, () => replacement2);
                     }
                 }
 
-                output = output.replace(regexCache.get(key)!, value);
+                const replacement = value;
+                output = output.replace(regexCache.get(key)!, () => replacement);
             }
         }
 

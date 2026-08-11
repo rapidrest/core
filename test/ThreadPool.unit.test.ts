@@ -175,6 +175,38 @@ describe("ThreadPool Unit Tests.", () => {
         expect(() => createdWorkers[0].emit("error", new Error("boom"))).not.toThrow();
     });
 
+    it("Rejects start() when a worker's native 'error' event fires before it becomes ready.", async () => {
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js" }, 1);
+        createdWorkers[0].emit("error", new Error("crashed during startup"));
+        await expect(promise).rejects.toThrow("crashed during startup");
+    });
+
+    it("Resolves immediately without creating workers when the requested count is zero.", async () => {
+        const pool = new ThreadPool(1);
+        await pool.start({ entry: "./worker.js" }, 0);
+        expect(createdWorkers).toHaveLength(0);
+        expect(pool.size).toBe(0);
+    });
+
+    it("Terminates leftover workers from a previous start() call instead of leaking them.", async () => {
+        const pool = new ThreadPool(1);
+        const firstPromise = pool.start({ entry: "./worker.js" }, 1);
+        createdWorkers[0].emit("online");
+        await firstPromise;
+
+        const firstWorker = createdWorkers[0];
+        const removeAllListenersSpy = vi.spyOn(firstWorker, "removeAllListeners");
+
+        const secondPromise = pool.start({ entry: "./worker.js" }, 1);
+        createdWorkers[1].emit("online");
+        await secondPromise;
+
+        expect(removeAllListenersSpy).toHaveBeenCalled();
+        expect(firstWorker.terminate).toHaveBeenCalled();
+        expect(pool.workers[0]).toBe(createdWorkers[1]);
+    });
+
     it("Recreates the worker on exit when restartOnExit is set.", async () => {
         const pool = new ThreadPool(1);
         const promise = pool.start({ entry: "./worker.js", restartOnExit: true }, 1);

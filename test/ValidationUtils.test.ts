@@ -48,7 +48,8 @@ describe("ValidationUtils Tests.", () => {
         expect(ValidationUtils.checkNull("value")).toBe("value");
         expect(ValidationUtils.checkNull(false)).toBe(false);
         expect(ValidationUtils.checkNull(true)).toBe(true);
-        expect(() => ValidationUtils.checkNull(0)).toThrow("Value cannot be null.");
+        // `0` is a valid, non-null value (matching `ObjectUtils.validate`'s own nullable convention).
+        expect(ValidationUtils.checkNull(0)).toBe(0);
         expect(() => ValidationUtils.checkNull(null)).toThrow("Value cannot be null.");
         expect(() => ValidationUtils.checkNull(undefined)).toThrow("Value cannot be null.");
         expect(() => ValidationUtils.checkNull("")).toThrow("Value cannot be null.");
@@ -80,5 +81,9 @@ describe("ValidationUtils Tests.", () => {
         expect(ValidationUtils.checkVersion("5")).toBe(5);
         expect(ValidationUtils.checkVersion(-5)).toBe(0);
         expect(ValidationUtils.checkVersion(0)).toBe(0);
+    });
+
+    it("checkVersion throws for non-numeric input instead of silently returning NaN.", () => {
+        expect(() => ValidationUtils.checkVersion("not-a-number")).toThrow("Value is not a valid version number.");
     });
 });

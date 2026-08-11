@@ -262,6 +262,28 @@ describe("JWTUtils Tests.", () => {
         );
     });
 
+    it("Cannot use an asymmetric secret provided as a KeyObject without restricting algorithms.", async () => {
+        // e.g. from `crypto.createPrivateKey()`. Neither a string nor a Buffer, so this exercises a distinct
+        // detection path from the PEM string/Buffer forms above.
+        const unsafeConfig = { secret: crypto.createPrivateKey(rsaPrivateKey) as any };
+        await expect(JWTUtils.createToken(unsafeConfig, testUser)).rejects.toThrow(
+            "config.secret appears to be an asymmetric key.",
+        );
+    });
+
+    it("Cannot use an asymmetric secret provided as a { key, passphrase } object without restricting algorithms.", async () => {
+        const unsafeConfig = { secret: { key: rsaPrivateKey, passphrase: "" } as any };
+        await expect(JWTUtils.createToken(unsafeConfig, testUser)).rejects.toThrow(
+            "config.secret appears to be an asymmetric key.",
+        );
+    });
+
+    it("Does not flag a symmetric KeyObject (e.g. crypto.createSecretKey()) as asymmetric.", async () => {
+        const safeConfig = { secret: crypto.createSecretKey(Buffer.from("MyPasswordIsSecure")) as any };
+        const token = await JWTUtils.createToken(safeConfig, testUser);
+        expect(token).toBeDefined();
+    });
+
     it("Ignores an unrecognized compression method.", async () => {
         const bogusCompressConfig = {
             secret: "MyPasswordIsSecure",

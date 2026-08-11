@@ -11,6 +11,8 @@ const logger = Logger();
 
 /** Cache of parsed spec objects keyed by file path or URL, to avoid repeated I/O and parsing. */
 const _specCache: Map<string, any> = new Map();
+/** The maximum number of parsed specs to retain in `_specCache` before evicting the oldest entry. */
+const _specCacheMaxSize = 100;
 
 const _urlRegex = /^https?:\/\/[a-zA-Z0-9]*\.?[a-z].*/;
 
@@ -63,9 +65,13 @@ export class OASUtils {
             }
 
             let parts: string[] = path.split("/");
-            parts.forEach(part => {
+            for (const part of parts) {
+                if (result === undefined || result === null) {
+                    result = undefined;
+                    break;
+                }
                 result = result[part];
-            });
+            }
         } else {
             result = undefined;
         }
@@ -114,8 +120,9 @@ export class OASUtils {
             throw new Error("Invalid specification. No schemas found.");
         }
 
-        // Compile regex once before the loop; escape special chars to handle schema names with dots/brackets
-        const nameRegex = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+        // Compile regex once before the loop; escape special chars to handle schema names with dots/brackets.
+        // Anchored so e.g. "User" doesn't also match "AdminUser"/"UserProfile".
+        const nameRegex = new RegExp("^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
         for (const schemaName in spec.components.schemas) {
             if (nameRegex.test(schemaName)) {
                 return spec.components.schemas[schemaName];
@@ -264,6 +271,17 @@ export class OASUtils {
         }
 
         if (apiSpec !== null) {
+            if (_specCache.size >= _specCacheMaxSize) {
+                // Bound cache growth by evicting the oldest entry (Map preserves insertion order). `oldestKey` is
+                // only `undefined` if the cache were empty, which can't happen here since `size >= 1` (the `>=
+                // _specCacheMaxSize` check above only passes once at least one entry exists); kept as defense in
+                // depth.
+                const oldestKey: string | undefined = _specCache.keys().next().value;
+                /* v8 ignore next 3 */
+                if (oldestKey !== undefined) {
+                    _specCache.delete(oldestKey);
+                }
+            }
             _specCache.set(file, apiSpec);
         }
 

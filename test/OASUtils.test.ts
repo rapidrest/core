@@ -943,6 +943,36 @@ describe("OASUtils Tests", () => {
         expect(OASUtils.getObject(spec, "")).toBeUndefined();
     });
 
+    it("getObject returns undefined instead of throwing for a missing/malformed path segment.", async () => {
+        let spec = await OASUtils.loadSpec("./test-openapi/openapi.json");
+        expect(OASUtils.getObject(spec, "/nonexistent/deeply/nested/path")).toBeUndefined();
+    });
+
+    it("loadSpec evicts the oldest cached spec once the cache exceeds its maximum size.", async () => {
+        OASUtils.clearSpecCache();
+        const dir = "./test-openapi-cache";
+        await mkdirp(dir);
+        try {
+            const paths: string[] = [];
+            for (let i = 0; i <= 100; i++) {
+                const p = `${dir}/spec-${i}.json`;
+                fs.writeFileSync(p, JSON.stringify({ openapi: "3.0.1", marker: "original" }));
+                paths.push(p);
+                await OASUtils.loadSpec(p);
+            }
+
+            // The cache's max size is 100, so loading the 101st distinct spec should have evicted the first one.
+            // Overwrite it on disk with different content and confirm reloading returns the new content rather
+            // than a stale cached value, proving it was actually evicted (not just still cached).
+            fs.writeFileSync(paths[0], JSON.stringify({ openapi: "3.0.1", marker: "reloaded" }));
+            const reloaded = await OASUtils.loadSpec(paths[0]);
+            expect(reloaded.marker).toBe("reloaded");
+        } finally {
+            rimraf.sync(dir);
+            OASUtils.clearSpecCache();
+        }
+    });
+
     it("getObject (YAML) succeeds.", async () => {
         let spec = await OASUtils.loadSpec("./test-openapi/openapi.yaml");
         expect(spec).toBeDefined();

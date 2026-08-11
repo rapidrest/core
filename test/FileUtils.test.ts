@@ -120,14 +120,10 @@ describe("FileUtils Tests", () => {
         }
     });
 
-    it("copyFile throws when the source file is empty.", async () => {
+    it("copyFile succeeds when the source file is empty.", async () => {
         fs.writeFileSync("tests-fileutils/empty.txt", "");
-        try {
-            await FileUtils.copyFile("tests-fileutils/empty.txt", "tests-fileutils/empty.copy.txt");
-            throw new Error("Failed to throw error.");
-        } catch (err: any) {
-            expect(err.message).toContain("Failed to read file");
-        }
+        await FileUtils.copyFile("tests-fileutils/empty.txt", "tests-fileutils/empty.copy.txt");
+        expect(fs.readFileSync("tests-fileutils/empty.copy.txt", "utf8")).toBe("");
     });
 
     it("copyBinaryFile succeeds.", async () => {
