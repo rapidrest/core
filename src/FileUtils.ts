@@ -119,8 +119,17 @@ const logger = Logger();
      * @param {Map<string,string>} variables The map of variable names to values to swap. Applies to outPath only.
      * @param {string} rootDir Optional. When provided, all resolved source and destination paths must be contained
      * within this directory, otherwise an error is thrown.
+     * @param {boolean} overwrite Set to `true` to overwrite an existing file at the destination. Default is `false`,
+     * matching the behavior of `writeFile`/`copyFile`. Appended after `rootDir` to preserve the existing positional
+     * call signature.
      */
-    public static async copyBinaryFile(srcPath: string, outPath: string, variables: any = {}, rootDir?: string): Promise<void> {
+    public static async copyBinaryFile(
+        srcPath: string,
+        outPath: string,
+        variables: any = {},
+        rootDir?: string,
+        overwrite: boolean = false
+    ): Promise<void> {
         let srcPathFull: any = path.resolve(srcPath);
 
         if (rootDir) {
@@ -135,6 +144,10 @@ const logger = Logger();
 
         if (rootDir) {
             FileUtils.assertContained(rootDir, outPathFinal);
+        }
+
+        if (fs.existsSync(outPathFinal) && !overwrite) {
+            throw new Error(`File already exists at "${outPathFinal}". Pass overwrite=true to replace it.`);
         }
 
         // Make sure the path leading to the final (template-substituted) destination exists. Must be derived from
@@ -209,7 +222,7 @@ const logger = Logger();
                         rootDir
                     );
                 } else if (binaryFilters.indexOf(extension) >= 0) {
-                    await FileUtils.copyBinaryFile(path.join(templatePath, file.name), destPath, vars, rootDir);
+                    await FileUtils.copyBinaryFile(path.join(templatePath, file.name), destPath, vars, rootDir, force);
                 } else {
                     await FileUtils.copyFile(path.join(templatePath, file.name), destPath, vars, force, rootDir);
                 }

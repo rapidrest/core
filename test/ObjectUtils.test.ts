@@ -160,6 +160,19 @@ describe("ObjectUtils Tests", () => {
         expect(obj.nested).not.toHaveProperty("email");
     });
 
+    it("Does not stack-overflow when recursing into a circular object graph.", () => {
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        const parent: any = { name: "parent" };
+        const child: any = { name: "child", parent };
+        parent.child = child;
+        expect(() => ObjectUtils.deleteScopedProps(parent, user, undefined, true)).not.toThrow();
+    });
+
     it("Can validate object.", () => {
         let testObj: TestValidationClass = new TestValidationClass();
         ObjectUtils.validate(testObj);
@@ -255,5 +268,12 @@ describe("ObjectUtils Tests", () => {
             },
         };
         expect(() => ObjectUtils.validate(obj, undefined, true)).toThrow("Property foo cannot be null.");
+    });
+
+    it("Does not stack-overflow when recursing into a circular object graph.", () => {
+        const parent: any = { uid: uuidV4(), semver: "1.0.0" };
+        const child: any = { uid: uuidV4(), semver: "1.0.0", parent };
+        parent.child = child;
+        expect(() => ObjectUtils.validate(parent, undefined, true)).not.toThrow();
     });
 });

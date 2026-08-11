@@ -7,7 +7,7 @@
 // unrelated to ThreadPool's own logic. Mocking `Worker` lets us deterministically drive every event/branch here.
 import { EventEmitter } from "events";
 import os from "os";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 let createdWorkers: MockWorker[] = [];
 
@@ -36,6 +36,10 @@ const { WorkerMessageType } = await import("../src/threads/ThreadWorker.js");
 
 beforeEach(() => {
     createdWorkers = [];
+});
+
+afterEach(() => {
+    vi.useRealTimers();
 });
 
 function makeLogger() {
@@ -290,7 +294,7 @@ describe("ThreadPool Unit Tests.", () => {
         expect(createdWorkers).toHaveLength(1);
     });
 
-    it("stop() sends STOP to all workers, waits, then terminates each and fires exit callbacks.", async () => {
+    it("stop() sends STOP, waits for graceful exit, and fires exit callbacks with the exit() code (no force-terminate).", async () => {
         const pool = new ThreadPool(2);
         const promise = pool.start({ entry: "./worker.js" }, 2);
         createdWorkers.forEach((w) => w.emit("online"));
@@ -302,7 +306,43 @@ describe("ThreadPool Unit Tests.", () => {
         const exits: any[] = [];
         pool.on("exit", (id: number, code: number) => exits.push([id, code]));
 
-        await pool.stop();
+        const stopPromise = pool.stop();
+        // Simulate each worker exiting gracefully on its own (as the real ThreadWorkerEntry.js does after its
+        // ThreadWorker.stop() resolves and it calls process.exit()) well within the grace period.
+        createdWorkers[0].emit("exit", 0);
+        createdWorkers[1].emit("exit", 7);
+        await stopPromise;
+
+        for (const worker of createdWorkers) {
+            expect(worker.messages).toContainEqual({ type: WorkerMessageType.STOP });
+            // A worker that exits on its own within the grace period must not be force-terminated.
+            expect(worker.terminate).not.toHaveBeenCalled();
+        }
+        expect(exits).toEqual(
+            expect.arrayContaining([
+                [0, 0],
+                [1, 7],
+            ]),
+        );
+    });
+
+    it("stop() force-terminates a worker that doesn't exit on its own within the grace period.", async () => {
+        vi.useFakeTimers();
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ entry: "./worker.js" }, 2);
+        createdWorkers.forEach((w) => w.emit("online"));
+        await promise;
+
+        createdWorkers[0].terminate = vi.fn(async () => 0);
+        createdWorkers[1].terminate = vi.fn(async () => 7);
+
+        const exits: any[] = [];
+        pool.on("exit", (id: number, code: number) => exits.push([id, code]));
+
+        const stopPromise = pool.stop();
+        // Neither worker exits on its own; advance past the grace period so stop() falls back to terminate().
+        await vi.advanceTimersByTimeAsync(5000);
+        await stopPromise;
 
         for (const worker of createdWorkers) {
             expect(worker.messages).toContainEqual({ type: WorkerMessageType.STOP });
@@ -319,7 +359,9 @@ describe("ThreadPool Unit Tests.", () => {
     it("stop() does not double-fire 'exit' callbacks when terminate() itself emits the real 'exit' event.", async () => {
         // Real `worker_threads.Worker#terminate()` resolves precisely because the worker's own 'exit' event fires;
         // the mock above doesn't reproduce that by default, so this test wires it up explicitly to exercise the
-        // interaction between the "exit" listener registered in createWorker and stop()'s own callback loop.
+        // interaction between the "exit" listener registered in createWorker and stop()'s own callback loop. The
+        // worker never exits gracefully on its own, so this exercises the force-terminate fallback path.
+        vi.useFakeTimers();
         const pool = new ThreadPool(1);
         const promise = pool.start({ entry: "./worker.js" }, 1);
         createdWorkers[0].emit("online");
@@ -333,7 +375,9 @@ describe("ThreadPool Unit Tests.", () => {
         const exits: any[] = [];
         pool.on("exit", (id: number, code: number) => exits.push([id, code]));
 
-        await pool.stop();
+        const stopPromise = pool.stop();
+        await vi.advanceTimersByTimeAsync(5000);
+        await stopPromise;
 
         expect(exits).toEqual([[0, 0]]);
     });
@@ -344,7 +388,9 @@ describe("ThreadPool Unit Tests.", () => {
         createdWorkers.forEach((w) => w.emit("online"));
         await promise;
 
-        await pool.stop();
+        const stopPromise = pool.stop();
+        createdWorkers.forEach((w) => w.emit("exit", 0));
+        await stopPromise;
 
         expect(pool.size).toBe(0);
         expect(pool.workers).toHaveLength(0);

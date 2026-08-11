@@ -25,7 +25,6 @@ if (workerData) {
         const clazz = mod.default;
         const args = workerData.args || [];
         worker = new clazz(logger, ...args);
-        void worker.start();
 
         parentPort.on("message", async (msg) => {
             try {
@@ -54,6 +53,11 @@ if (workerData) {
             await worker?.stop();
             process.exit(0);
         });
+
+        // Wait for the worker's own start() to fully complete before announcing readiness, so the coordinator's
+        // ThreadPool.start() promise (which resolves on receipt of "_WorkerOnline") never resolves while the
+        // worker's async setup (e.g. opening a DB connection) is still in flight.
+        await worker.start();
 
         // Notify the coordinator that we're ready
         parentPort?.postMessage({ type: "_WorkerOnline" });

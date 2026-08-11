@@ -62,7 +62,9 @@ export class Event implements NewEvent {
         // Copy all fields in data to this object
         const tmp: any = data as any;
         for (let key in tmp) {
-            if (key !== "environment" && key !== "origin" && key !== "userId") {
+            // We intentionally exclude only environment/origin/uid/userId from copying here. All others, including timestamp
+            // the caller can override in order to provide more accurate information about the event.
+            if (key !== "environment" && key !== "origin" && key !== "uid" && key !== "userId") {
                 (this as any)[key] = tmp[key];
             }
         }
@@ -79,6 +81,14 @@ export class Event implements NewEvent {
  * The `on` function allows code within the same application or service to listen for outgoing events that have been
  * sent via the `record` function.
  *
+ * The utility uses an application specific JWT access token for sending telemetry events. The purpose of using an
+ * application specific JWT token versus user token is to identify a potentially compromised application server. This
+ * also allows the server to send telemetry events on behalf of the user that the user may not otherwise have permission
+ * to send.
+ *
+ * Note: This class is considered a runtime singleton and intentionally uses static state. Do not initialize this
+ * class more than once in your application.
+ *
  * @author Jean-Philippe Steinmetz <rapidrests@gmail.com>
  */
 export class EventUtils {
@@ -94,7 +104,7 @@ export class EventUtils {
      *
      * @param config The application configuration to use.
      * @param logger The logging utility to use.
-     * @param jwtToken The user's JWT token to send telemetry events on behalf of.
+     * @param jwtToken The application's JWT token to send telemetry events on behalf of.
      */
     public static async init(config: any, logger: any, jwtToken: string): Promise<void> {
         EventUtils.config = config;
@@ -138,14 +148,13 @@ export class EventUtils {
                 const response: AxiosResponse = await axios.post(url, event, {
                     headers: {
                         Authorization: "jwt " + EventUtils.token,
-                    }
+                    },
                 });
             } else {
                 EventUtils.logger?.debug(
-                    "Failed to send telemetry event. telemetry_services:url has not been set in the config."
+                    "Failed to send telemetry event. telemetry_services:url has not been set in the config.",
                 );
             }
-
 
             // Notify any registered listeners
             const callbacks: Function[] | undefined = EventUtils.listeners.get(evt.type);
@@ -156,7 +165,7 @@ export class EventUtils {
             }
         } catch (err: any) {
             if (!EventUtils.logger) {
-                console.warn(`Failed to send telemetry event. Error: ${err.message}`)
+                console.warn(`Failed to send telemetry event. Error: ${err.message}`);
             } else {
                 EventUtils.logger.warn(`Failed to send telemetry event. Error: ${err.message}`);
             }

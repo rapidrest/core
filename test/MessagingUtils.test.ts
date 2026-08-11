@@ -329,6 +329,30 @@ describe("MessagingUtils Tests.", () => {
             expect(tpl.text).toContain("Hello {{name}}");
         });
 
+        it("A second instance sharing the same config compiles its own templates instead of trusting another instance's 'loaded' flag.", async () => {
+            const config = (await import("./config.js")).default;
+            configuration.templates.test = {
+                enabled: true,
+                subject: "Alert Subject {{name}}",
+            };
+            config.overrides(configuration);
+            const factory = new ObjectFactory(config, Logger());
+
+            // Both instances are bound to the same underlying config object (nconf.get() returns a live
+            // reference for nested paths, not a clone), reproducing two independently-created MessagingUtils
+            // instances sharing one `templates` config.
+            const messagingUtilsA: MessagingUtils = await factory.newInstance(MessagingUtils, { name: "a" });
+            const messagingUtilsB: MessagingUtils = await factory.newInstance(MessagingUtils, { name: "b" });
+
+            // The first instance compiles and caches the template, marking the shared config's `loaded` flag.
+            const tplA = messagingUtilsA.loadTemplate("test");
+            expect(tplA.loaded).toBe(true);
+
+            // The second instance must still populate its own compiled-template cache rather than short-circuit
+            // on the shared `loaded` flag, otherwise sendEmail() below would throw a TypeError.
+            await expect(messagingUtilsB.sendEmail("test", { name: "World" })).resolves.toBeDefined();
+        });
+
         it("Does not load html/text when htmlPath/textPath point to non-existent files.", async () => {
             const config = (await import("./config.js")).default;
             configuration.templates.test = {

@@ -33,12 +33,17 @@ export class NotificationUtils {
      * if the underlying client's `publish()` rejects.
      */
     private publish(channel: string, payload: string): void {
-        const result: any = this.redis?.publish(channel, payload);
-        if (result && typeof result.catch === "function") {
-            result.catch((err: any) => {
-                this.logger?.error(`Failed to publish message to channel: ${channel}`);
-                this.logger?.debug(err);
-            });
+        try {
+            const result: any = this.redis?.publish(channel, payload);
+            if (result && typeof result.catch === "function") {
+                result.catch((err: any) => {
+                    this.logger?.error(`Failed to publish message to channel: ${channel}`);
+                    this.logger?.debug(err);
+                });
+            }
+        } catch (err: any) {
+            this.logger?.error(`Failed to publish message to channel: ${channel}`);
+            this.logger?.debug(err);
         }
     }
 

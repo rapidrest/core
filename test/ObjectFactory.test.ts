@@ -297,6 +297,21 @@ describe("ObjectFactory Tests", () => {
         expect(instance).toBe(instance2);
     });
 
+    it("getInstance by type still finds a surviving instance after the 'first' instance of that class is destroyed.", async () => {
+        const instanceA: TestClassA = await factory.newInstance(TestClassA, { name: "a" });
+        const instanceB: TestClassA = await factory.newInstance(TestClassA, { name: "b" });
+        expect(factory.getInstance(TestClassA)).toBe(instanceA);
+
+        await factory.destroy(instanceA);
+
+        // `instanceB` is still alive in the factory; getInstance-by-type must fall through to it instead of
+        // returning undefined just because the original "first" instance for the class was destroyed.
+        expect(factory.getInstance(TestClassA)).toBe(instanceB);
+
+        await factory.destroy(instanceB);
+        expect(factory.getInstance(TestClassA)).toBeUndefined();
+    });
+
     it("Can call destory on class instance and all instances.", async () => {
         const testClassBInstance: TestClassB = await factory.newInstance(TestClassB, {
             name: "default",

@@ -157,7 +157,21 @@ export class ObjectFactory {
                 this.instances.delete(name);
                 for (const [className, firstName] of this._firstByClass) {
                     if (firstName === name) {
-                        this._firstByClass.delete(className);
+                        // The destroyed instance was the secondary index's "first" entry for this class.
+                        // Promote another surviving instance of the same class if one exists, otherwise
+                        // drop the entry so getInstance() correctly reports no instance is available.
+                        let replacement: string | undefined;
+                        for (const key of this.instances.keys()) {
+                            if (key.startsWith(`${className}:`)) {
+                                replacement = key;
+                                break;
+                            }
+                        }
+                        if (replacement) {
+                            this._firstByClass.set(className, replacement);
+                        } else {
+                            this._firstByClass.delete(className);
+                        }
                     }
                 }
             }

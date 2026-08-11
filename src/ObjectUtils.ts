@@ -21,8 +21,21 @@ export class ObjectUtils {
      * @param recurse Set to `true` to validate all child objects.
      */
     public static deleteScopedProps(obj: any, user?: JWTUser, clazz?: any, recurse?: boolean) {
+        ObjectUtils._deleteScopedProps(obj, user, clazz, recurse, new Set());
+    }
+
+    /**
+     * Internal implementation of `deleteScopedProps` that tracks already-visited objects so that circular
+     * references (e.g. ORM-populated relations that reference each other) don't cause infinite recursion.
+     */
+    private static _deleteScopedProps(obj: any, user: JWTUser | undefined, clazz: any, recurse: boolean | undefined, visited: Set<any>) {
         const objs: any[] = Array.isArray(obj) ? obj : [obj];
         for (const obj of objs) {
+            // Track every object visited (Set works fine with primitives too, so no `typeof` guard is needed)
+            // so a circular reference doesn't cause infinite recursion.
+            if (visited.has(obj)) continue;
+            visited.add(obj);
+
             const metadataObj: any = !clazz || obj instanceof clazz ? obj : new clazz();
 
             // Iterate through all properties of the object
@@ -41,7 +54,7 @@ export class ObjectUtils {
                 // `typeof null === "object"` in JS, and recursing into `null` would throw inside
                 // `Object.getOwnPropertyNames`.
                 if (recurse && obj[member] !== null && typeof obj[member] === "object") {
-                    ObjectUtils.deleteScopedProps(obj[member], user, undefined, recurse);
+                    ObjectUtils._deleteScopedProps(obj[member], user, undefined, recurse, visited);
                 }
             }
         }
@@ -56,8 +69,21 @@ export class ObjectUtils {
      * @param recurse Set to `true` to validate all child objects.
      */
     public static validate(obj: any, clazz?: any, recurse?: boolean) {
+        ObjectUtils._validate(obj, clazz, recurse, new Set());
+    }
+
+    /**
+     * Internal implementation of `validate` that tracks already-visited objects so that circular references
+     * (e.g. ORM-populated relations that reference each other) don't cause infinite recursion.
+     */
+    private static _validate(obj: any, clazz: any, recurse: boolean | undefined, visited: Set<any>) {
         const objs: any[] = Array.isArray(obj) ? obj : [obj];
         for (const obj of objs) {
+            // Track every object visited (Set works fine with primitives too, so no `typeof` guard is needed)
+            // so a circular reference doesn't cause infinite recursion.
+            if (visited.has(obj)) continue;
+            visited.add(obj);
+
             const metadataObj: any = !clazz || obj instanceof clazz ? obj : new clazz();
 
             // Iterate through all properties of the object
@@ -87,7 +113,7 @@ export class ObjectUtils {
                 // `typeof null === "object"` in JS, and recursing into `null` would throw inside
                 // `Object.getOwnPropertyNames`.
                 if (recurse && obj[member] !== null && typeof obj[member] === "object") {
-                    ObjectUtils.validate(obj[member], undefined, recurse);
+                    ObjectUtils._validate(obj[member], undefined, recurse, visited);
                 }
             }
         }

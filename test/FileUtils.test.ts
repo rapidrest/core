@@ -129,9 +129,34 @@ describe("FileUtils Tests", () => {
     it("copyBinaryFile succeeds.", async () => {
         fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
         expect(fs.existsSync("tests-fileutils/test.txt")).toBe(true);
-        await FileUtils.copyBinaryFile("tests-fileutils/test.txt", "tests-fileutils/test.copy.txt");
-        let content = fs.readFileSync("tests-fileutils/test.copy.txt", "utf8");
+        await FileUtils.copyBinaryFile("tests-fileutils/test.txt", "tests-fileutils/test.bincopy.txt");
+        let content = fs.readFileSync("tests-fileutils/test.bincopy.txt", "utf8");
         expect(content).toBe("This is a test.");
+    });
+
+    it("copyBinaryFile throws when the destination already exists and overwrite is not set.", async () => {
+        fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
+        fs.writeFileSync("tests-fileutils/test.bincopy-existing.txt", "Old contents.");
+        try {
+            await FileUtils.copyBinaryFile("tests-fileutils/test.txt", "tests-fileutils/test.bincopy-existing.txt");
+            throw new Error("Failed to throw error.");
+        } catch (err: any) {
+            expect(err.message).toContain("File already exists");
+        }
+        expect(fs.readFileSync("tests-fileutils/test.bincopy-existing.txt", "utf8")).toBe("Old contents.");
+    });
+
+    it("copyBinaryFile overwrites the destination when overwrite is true.", async () => {
+        fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
+        fs.writeFileSync("tests-fileutils/test.bincopy-overwrite.txt", "Old contents.");
+        await FileUtils.copyBinaryFile(
+            "tests-fileutils/test.txt",
+            "tests-fileutils/test.bincopy-overwrite.txt",
+            {},
+            undefined,
+            true
+        );
+        expect(fs.readFileSync("tests-fileutils/test.bincopy-overwrite.txt", "utf8")).toBe("This is a test.");
     });
 
     it("copyBinaryFile throws when the source file does not exist.", async () => {

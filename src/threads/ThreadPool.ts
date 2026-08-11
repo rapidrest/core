@@ -63,6 +63,8 @@ export interface WorkerOptions {
  * @author Jean-Philippe Steinmetz
  */
 export class ThreadPool {
+    /** The maximum amount of time, in milliseconds, `stop()` waits for a worker to exit on its own before force-terminating it. */
+    private static readonly STOP_GRACE_PERIOD_MS = 5000;
     /** The map of event types to a list of callback functions. */
     private callbacks: Map<string, Array<WorkerCallback>>;
     /** The index of the last worker that was assigned work. */
@@ -289,23 +291,30 @@ export class ThreadPool {
     }
 
     /**
-     * Stops all running thread executions.
+     * Stops all running thread executions. Each worker is given `ThreadPool.STOP_GRACE_PERIOD_MS` to gracefully
+     * finish its own `stop()` and exit on its own before being force-terminated.
      */
     @Destroy
     public async stop(): Promise<void> {
         const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("exit");
         this.shutdown = true;
 
-        // Send the stop signal so the workers know to terminate
+        // Send the stop signal so the workers know to shut down gracefully
         this.sendAll({ type: WorkerMessageType.STOP });
-        // Give the message above a chance to propogate
-        await sleep(10);
 
         // Terminate all workers concurrently so shutdown latency is bounded by the slowest worker rather than
-        // scaling linearly with pool size.
+        // scaling linearly with pool size. Each worker gets a grace period to exit on its own (i.e. for its
+        // ThreadWorker.stop() to actually finish) before being force-terminated, so in-flight cleanup work
+        // (flushing writes, closing connections, etc.) isn't cut off by an arbitrary fixed delay.
         await Promise.all(
             this.workers.map(async (worker, idx) => {
-                const exitCode: number = await worker.terminate();
+                const exitedOnOwn = new Promise<number>((resolve) => worker.once("exit", resolve));
+                const timedOut = sleep(ThreadPool.STOP_GRACE_PERIOD_MS).then(() => undefined);
+
+                let exitCode: number | undefined = await Promise.race([exitedOnOwn, timedOut]);
+                if (exitCode === undefined) {
+                    exitCode = await worker.terminate();
+                }
 
                 if (listeners) {
                     for (const callback of listeners) {

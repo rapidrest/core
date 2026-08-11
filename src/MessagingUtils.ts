@@ -92,6 +92,9 @@ export class MessagingUtils {
     /** Cache of compiled Handlebars delegates keyed by "<templateName>:<field>". */
     private _compiledTemplates: Map<string, handlebars.TemplateDelegate> = new Map();
 
+    /** Names of templates already compiled into `_compiledTemplates` for this instance. See `loadTemplate()`. */
+    private _loadedTemplates: Set<string> = new Set();
+
     @Init
     public async init() {
         if (this.slackConfigs.length > 0) {
@@ -171,7 +174,11 @@ export class MessagingUtils {
         }
 
         const tplConfig: Template = this.templates[name];
-        if (tplConfig.loaded) {
+        // Gate on this instance's own compiled-template cache rather than `tplConfig.loaded`: the latter lives on
+        // the (potentially shared, config-provided) `Template` object, so a second instance bound to the same
+        // config could otherwise see `loaded === true` set by another instance without ever populating its own
+        // `_compiledTemplates` cache.
+        if (this._loadedTemplates.has(name)) {
             return tplConfig;
         }
 
@@ -186,6 +193,7 @@ export class MessagingUtils {
         }
 
         tplConfig.loaded = true;
+        this._loadedTemplates.add(name);
 
         // Compile and cache all Handlebars delegates on first load
         if (tplConfig.text) this._compiledTemplates.set(`${name}:text`, handlebars.compile(tplConfig.text));
