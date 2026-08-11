@@ -1,6 +1,8 @@
 ﻿///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
+import { Logger } from "./decorators/ObjectDecorators.js";
+
 /**
  * Utility functions for sending push notifications to registered clients.
  *
@@ -10,6 +12,7 @@ export class NotificationUtils {
     /** The redis client to use for broadcasting messages. */
     private redis: any;
     /** The logging utility to use. */
+    @Logger
     private logger?: any;
 
     /**
@@ -18,12 +21,11 @@ export class NotificationUtils {
      * @param {any} redis The redis connection to publish to.
      * @param {any} logger The logging utility to use.
      */
-    constructor(redis: any, logger?: any) {
+    constructor(redis: any) {
         if (!redis) {
             throw new Error("redis argument is required.");
         }
         this.redis = redis;
-        this.logger = logger;
     }
 
     /**

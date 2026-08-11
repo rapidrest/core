@@ -61,7 +61,8 @@ describe("NotificationUtils Tests.", () => {
         const logger = { error: vi.fn(), debug: vi.fn() };
         const err = new Error("connection lost");
         const redis = { publish: vi.fn().mockRejectedValue(err) };
-        const notifications = new NotificationUtils(redis, logger);
+        const notifications = new NotificationUtils(redis);
+        (notifications as any).logger = logger;
 
         notifications.broadcastMessage("alert", "created", { foo: "bar" });
         // Let the rejected publish() promise's .catch() handler run.
