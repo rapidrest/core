@@ -200,6 +200,7 @@ export class ThreadPool {
 
         return new Promise((resolve, reject) => {
             let numReady: number = 0;
+            let settled = false;
             if (!options) {
                 options = {};
             }
@@ -214,10 +215,35 @@ export class ThreadPool {
                 return;
             }
 
+            // If any worker fails to start, terminate every worker created during this start() call (the
+            // failed one and any siblings that succeeded) before rejecting. Without this, a failed start()
+            // leaks running worker threads that the caller has no reference to, since the returned promise
+            // is the only thing that told them startup failed - they have no reason to call stop(). `shutdown`
+            // is set first (mirroring stop()) so createWorker()'s persistent "exit" handler treats this as a
+            // controlled teardown rather than a crash to restart via `restartOnExit`. Listeners are
+            // deliberately left attached (unlike the leftover-worker cleanup above) rather than calling
+            // `removeAllListeners()`: a worker mid-teardown that still fires a genuine "error" event with no
+            // listener left on it would make Node throw and crash the whole process.
+            const failStartup = (error: any) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                this.shutdown = true;
+                for (const worker of this.workers) {
+                    void worker.terminate();
+                }
+                this.workers.length = 0;
+                reject(error);
+            };
+
             for (let i = 0; i < target; i++) {
                 const worker: Worker = this.createWorker(i, options);
                 let ready = false;
                 worker.on("online", () => {
+                    if (settled) {
+                        return;
+                    }
                     if (options && !options.worker) {
                         ready = true;
                         numReady++;
@@ -225,6 +251,7 @@ export class ThreadPool {
 
                     // When all workers have finished being created resolve
                     if (numReady >= target) {
+                        settled = true;
                         resolve();
                     }
                 });
@@ -232,14 +259,17 @@ export class ThreadPool {
                 // returned promise hanging forever.
                 worker.on("error", (error) => {
                     if (!ready) {
-                        reject(error);
+                        failStartup(error);
                     }
                 });
                 worker.on("message", (msg: any) => {
+                    if (settled) {
+                        return;
+                    }
                     switch (msg.type) {
                         case WorkerMessageType.ERROR:
-                            reject(msg.data);
-                            break;
+                            failStartup(msg.data);
+                            return;
                         case WorkerMessageType.ONLINE:
                             ready = true;
                             numReady++;
@@ -248,6 +278,7 @@ export class ThreadPool {
 
                     // When all workers have finished being created resolve
                     if (numReady >= target) {
+                        settled = true;
                         resolve();
                     }
                 });

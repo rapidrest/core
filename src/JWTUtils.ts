@@ -228,6 +228,17 @@ export class JWTUtils {
     }
 
     /**
+     * Returns `true` if `algorithm` is an AEAD cipher (GCM/CCM/OCB/ChaCha20-Poly1305), which produces an
+     * authentication tag that must be captured on encryption and supplied back on decryption via
+     * `getAuthTag()`/`setAuthTag()`.
+     *
+     * @param algorithm The cipher algorithm name (e.g. `aes-256-gcm`).
+     */
+    private static isAEADCipher(algorithm: string): boolean {
+        return /-(gcm|ccm|ocb)$/i.test(algorithm) || /chacha20-poly1305/i.test(algorithm);
+    }
+
+    /**
      * Decrypts data produced by `hybridEncrypt`.
      *
      * @param privateKey The RSA private key to unwrap the AES key with.
@@ -285,7 +296,13 @@ export class JWTUtils {
 
                 let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
                 encrypted += cipher.final("base64");
-                payload.profile = salt.toString("base64") + ":" + encrypted;
+                // AEAD ciphers (e.g. aes-256-gcm) require the auth tag to be captured here and verified on
+                // decrypt via setAuthTag(), otherwise decodeToken() throws "Unsupported state or unable to
+                // authenticate data" on every token.
+                const authTag: string = JWTUtils.isAEADCipher(pwOtions.algorithm)
+                    ? (cipher as crypto.CipherGCM).getAuthTag().toString("base64")
+                    : "";
+                payload.profile = salt.toString("base64") + ":" + authTag + ":" + encrypted;
             }
             payload.encryption = true;
         }
@@ -334,7 +351,13 @@ export class JWTUtils {
 
                 let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
                 encrypted += cipher.final("base64");
-                payload.profile = salt.toString("base64") + ":" + encrypted;
+                // AEAD ciphers (e.g. aes-256-gcm) require the auth tag to be captured here and verified on
+                // decrypt via setAuthTag(), otherwise decodeTokenSync() throws "Unsupported state or unable to
+                // authenticate data" on every token.
+                const authTag: string = JWTUtils.isAEADCipher(pwOtions.algorithm)
+                    ? (cipher as crypto.CipherGCM).getAuthTag().toString("base64")
+                    : "";
+                payload.profile = salt.toString("base64") + ":" + authTag + ":" + encrypted;
             }
             payload.encryption = true;
         }
@@ -371,10 +394,13 @@ export class JWTUtils {
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
-                const [saltB64, profile] = payload.profile.split(":");
+                const [saltB64, authTagB64, profile] = payload.profile.split(":");
                 const salt = Buffer.from(saltB64, "base64");
                 const key: Buffer = await JWTUtils.deriveKey(pwOtions.password, salt);
                 const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
+                if (authTagB64) {
+                    (decipher as crypto.DecipherGCM).setAuthTag(Buffer.from(authTagB64, "base64"));
+                }
 
                 let decrypted: string = decipher.update(profile, "base64", "utf8");
                 decrypted += decipher.final("utf8");
@@ -422,10 +448,13 @@ export class JWTUtils {
             } else {
                 const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
                 const iv: Buffer = Buffer.from(pwOtions.iv);
-                const [saltB64, profile] = payload.profile.split(":");
+                const [saltB64, authTagB64, profile] = payload.profile.split(":");
                 const salt = Buffer.from(saltB64, "base64");
                 const key: Buffer = JWTUtils.deriveKeySync(pwOtions.password, salt);
                 const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
+                if (authTagB64) {
+                    (decipher as crypto.DecipherGCM).setAuthTag(Buffer.from(authTagB64, "base64"));
+                }
 
                 let decrypted: string = decipher.update(profile, "base64", "utf8");
                 decrypted += decipher.final("utf8");

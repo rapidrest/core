@@ -44,6 +44,22 @@ describe("JWTUtils Tests.", () => {
             password: "MyPasswordIsSecure",
         },
     };
+    const encryptGcmConfig = {
+        secret: "MyPasswordIsSecure",
+        options: {
+            audience: "rapidrest.dev",
+            issuer: "rapidrest.dev",
+        },
+        payload: {
+            compress: undefined,
+            encrypt: true,
+            // aes-192-gcm (rather than aes-256) to match deriveKey()'s fixed 24-byte scrypt output, same as the
+            // other password-based configs above use via aes-192-cbc.
+            iv: crypto.randomBytes(12),
+            algorithm: "aes-192-gcm",
+            password: "MyPasswordIsSecure",
+        },
+    };
     // Generated at test-time (rather than a hardcoded fixture) so the public key is guaranteed to be in a PEM/SPKI
     // format that `crypto.publicEncrypt`/`crypto.privateDecrypt` can actually consume.
     const { publicKey: rsaPublicKey, privateKey: rsaPrivateKey } = crypto.generateKeyPairSync("rsa", {
@@ -162,6 +178,29 @@ describe("JWTUtils Tests.", () => {
         expect(payload.encryption).toBeTruthy();
     });
 
+    it("Can create and decode a JWT token encrypted with an AEAD cipher (aes-256-gcm).", async () => {
+        const token = await JWTUtils.createToken(encryptGcmConfig, testUser);
+        expect(token).toBeDefined();
+        jwt.verify(token, encryptGcmConfig.secret, encryptGcmConfig.options);
+        const payload: JWTPayload = await JWTUtils.decodeToken(encryptGcmConfig, token);
+        expect(payload.profile).toEqual(testUser);
+        expect(payload.encryption).toBeTruthy();
+    });
+
+    it("Rejects a tampered auth tag when decoding an AEAD-encrypted JWT token.", async () => {
+        const token = await JWTUtils.createToken(encryptGcmConfig, testUser);
+        const decoded: any = jwt.decode(token);
+        const [saltB64, authTagB64, ciphertext] = (decoded.profile as string).split(":");
+        const tamperedTag = Buffer.from(authTagB64, "base64");
+        tamperedTag[0] ^= 0xff;
+        decoded.profile = `${saltB64}:${tamperedTag.toString("base64")}:${ciphertext}`;
+        // No `options` passed here: `decoded` already carries the `aud`/`iss`/`iat`/`exp` claims from the
+        // original signing, and jwt.sign() rejects an `options.audience`/`issuer` that conflicts with a
+        // payload that already has `aud`/`iss` set.
+        const tamperedToken = jwt.sign(decoded, encryptGcmConfig.secret);
+        await expect(JWTUtils.decodeToken(encryptGcmConfig, tamperedToken)).rejects.toThrow();
+    });
+
     it("Can decode JWT token. (sync)", () => {
         const token = JWTUtils.createTokenSync(config, testUser);
         expect(token).toBeDefined();
@@ -193,6 +232,15 @@ describe("JWTUtils Tests.", () => {
         expect(token).toBeDefined();
         jwt.verify(token, encryptKeyConfig.secret, encryptKeyConfig.options);
         const payload: JWTPayload = JWTUtils.decodeTokenSync(encryptKeyConfig, token);
+        expect(payload.profile).toEqual(testUser);
+        expect(payload.encryption).toBeTruthy();
+    });
+
+    it("Can create and decode a JWT token encrypted with an AEAD cipher (aes-256-gcm). (sync)", () => {
+        const token = JWTUtils.createTokenSync(encryptGcmConfig, testUser);
+        expect(token).toBeDefined();
+        jwt.verify(token, encryptGcmConfig.secret, encryptGcmConfig.options);
+        const payload: JWTPayload = JWTUtils.decodeTokenSync(encryptGcmConfig, token);
         expect(payload.profile).toEqual(testUser);
         expect(payload.encryption).toBeTruthy();
     });

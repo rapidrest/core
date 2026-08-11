@@ -58,10 +58,12 @@ export class StringUtils {
         // Go through all variables and perform replacement
         for (const key in variables) {
             // Perform replacement on the variable value itself. This allows nested variable replacement.
-            if (variables[key]) {
+            // Uses a null/undefined check rather than a truthiness check so falsy-but-real values (0, false,
+            // "") are still substituted instead of leaving the literal "{{key}}" placeholder in the output.
+            if (variables[key] !== undefined && variables[key] !== null) {
                 let value: string = variables[key] as string;
                 for (const key2 in variables) {
-                    if (variables[key2]) {
+                    if (variables[key2] !== undefined && variables[key2] !== null) {
                         // A function replacer is used (rather than passing the value directly as the second
                         // argument) so a value containing `$`-sequences (`$&`, `$$`, `$1`, ...) is inserted
                         // literally instead of being interpreted by `String.replace` as a special pattern.

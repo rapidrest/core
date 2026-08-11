@@ -317,8 +317,8 @@ export class AlertUtils {
             }
             const response: AxiosResponse = await axios.post(url, form, {
                 headers: {
-                    Authorization: this.auth,
-                    "Content-Type": "multipart/form-data"
+                    ...form.getHeaders(),
+                    Authorization: this.auth
                 }
             });
 

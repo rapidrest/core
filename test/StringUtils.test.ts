@@ -36,17 +36,32 @@ describe("StringUtils Tests.", () => {
         expect(result).toBe("The quick brown Fox jumped over the lazy Dog.");
     });
 
-    it("findAndReplace skips replacement for falsy variable values.", () => {
+    it("findAndReplace substitutes falsy-but-defined variable values instead of skipping them.", () => {
         let map = {
             adjective: "lazy",
             animal1: "",
+            count: 0,
             color: "brown",
         };
         let result = StringUtils.findAndReplace(
-            "The quick {{color}} {{animal1}} jumped over the {{adjective}} dog.",
+            "The quick {{color}} {{animal1}} jumped {{count}} times over the {{adjective}} dog.",
             map
         );
-        expect(result).toBe("The quick brown {{animal1}} jumped over the lazy dog.");
+        expect(result).toBe("The quick brown  jumped 0 times over the lazy dog.");
+    });
+
+    it("findAndReplace leaves the placeholder when a variable is undefined or null.", () => {
+        let map = {
+            adjective: "lazy",
+            animal1: undefined,
+            animal2: null,
+            color: "brown",
+        };
+        let result = StringUtils.findAndReplace(
+            "The quick {{color}} {{animal1}} jumped over the {{animal2}} {{adjective}} dog.",
+            map as any
+        );
+        expect(result).toBe("The quick brown {{animal1}} jumped over the {{animal2}} lazy dog.");
     });
 
     it("replaceAll returns successfully.", () => {

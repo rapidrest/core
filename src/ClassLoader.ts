@@ -141,6 +141,18 @@ export class ClassLoader {
             let fullpath: string = path.resolve(path.join(this.rootDir, relpath, file.name));
             let pkg: string = relpath.replace(sepRegex, ".");
 
+            // `fs.Dirent.isDirectory()`/extension matching below reflect the directory entry itself, not
+            // what it points to. Without resolving symlinks here, a symlink placed inside the scanned tree
+            // could point at an arbitrary file or directory outside rootDir and still be recursed into or
+            // dynamically imported below, defeating the containment check performed on `dir` above.
+            if (file.isSymbolicLink()) {
+                const realpath: string = await fs.promises.realpath(fullpath);
+                const relReal: string = path.relative(this.rootDir, realpath);
+                if (relReal !== "" && (relReal.startsWith("..") || path.isAbsolute(relReal))) {
+                    throw new Error(`Symlink "${fullpath}" escapes the allowed root directory "${this.rootDir}".`);
+                }
+            }
+
             if (file.isDirectory()) {
                 let subdir: string = path.join(dir, file.name);
                 await this.load(subdir);

@@ -65,6 +65,10 @@ if (workerData) {
         });
         logger.error(`An error occurred initializing worker.`);
         logger.error(error);
+        // No message/close listeners were registered above (initialization failed before reaching that
+        // point), so without exiting here the thread would sit idle forever, unresponsive to STOP and
+        // invisible as a "failed" worker to anything but the ThreadPool's own error/exit handling.
+        process.exit(1);
     }
 } else {
     logger.error(`WorkerData is missing.`);

@@ -2,6 +2,7 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import fs from "fs";
+import path from "path";
 import { ClassLoader } from "../src/ClassLoader.js";
 import * as rimraf from "rimraf";
 import { mkdirp } from "mkdirp";
@@ -152,5 +153,45 @@ module.exports.MyClassNamed = MyClassNamed;
         let classes: Map<string, any> = loader.getClasses();
         expect(classes).toBeDefined();
         expect(loader.getClass("MyTypeScriptClass")).toBeDefined();
+    });
+
+    it("Fails to load a directory reached via a symlink that escapes the root directory.", async () => {
+        // "junction" is used (rather than a plain file/dir symlink) because it's the only symlink type
+        // Windows lets an unprivileged process create; the `type` argument is ignored on POSIX, so this
+        // still produces an ordinary symlink there.
+        const outsideDir: string = path.resolve("./test/test-classes-outside");
+        await mkdirp(outsideDir);
+        fs.writeFileSync(path.join(outsideDir, "Evil.cjs"), "module.exports.default = class Evil {};");
+        const linkPath: string = "./test/test-classes/evil-link";
+        fs.symlinkSync(outsideDir, linkPath, "junction");
+
+        try {
+            let loader: ClassLoader = new ClassLoader("./test/test-classes");
+            try {
+                await loader.load();
+                throw new Error("Failed to throw error.");
+            } catch (err: any) {
+                expect(err.message).toContain("escapes the allowed root directory");
+            }
+        } finally {
+            fs.rmSync(linkPath, { recursive: true, force: true });
+            rimraf.sync(outsideDir);
+        }
+    });
+
+    it("Does not throw for a symlink that stays within the root directory.", async () => {
+        // Directory symlinks aren't recursed into either way - `fs.Dirent.isDirectory()` reflects the symlink
+        // entry itself (always `false`), not its target - so this only exercises the containment check itself:
+        // a symlink that resolves inside rootDir must be allowed through rather than rejected.
+        const target: string = path.resolve("./test/test-classes/com/company/typescript");
+        const linkPath: string = "./test/test-classes/typescript-link";
+        fs.symlinkSync(target, linkPath, "junction");
+
+        try {
+            let loader: ClassLoader = new ClassLoader("./test/test-classes");
+            await expect(loader.load()).resolves.not.toThrow();
+        } finally {
+            fs.rmSync(linkPath, { recursive: true, force: true });
+        }
     });
 });

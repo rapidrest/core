@@ -269,7 +269,6 @@ export class ObjectFactory {
             const initialize: boolean = Reflect.getMetadata("rrst:initialize", obj, member);
             if (initialize) {
                 results.push(obj[member]);
-                break;
             }
         }
 
@@ -279,7 +278,6 @@ export class ObjectFactory {
                 const initialize: boolean = Reflect.getMetadata("rrst:initialize", proto, member);
                 if (initialize) {
                     results.push(obj[member]);
-                    break;
                 }
             }
             proto = Object.getPrototypeOf(proto);

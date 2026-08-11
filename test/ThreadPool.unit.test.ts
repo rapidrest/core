@@ -89,6 +89,22 @@ describe("ThreadPool Unit Tests.", () => {
         await promise;
     });
 
+    it("Waits for every worker-style worker to send ONLINE before resolving start().", async () => {
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ worker: "./MyWorker.js" }, 2);
+        expect(createdWorkers).toHaveLength(2);
+
+        createdWorkers[0].emit("message", { type: WorkerMessageType.ONLINE });
+        let resolved = false;
+        void promise.then(() => (resolved = true));
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+
+        createdWorkers[1].emit("message", { type: WorkerMessageType.ONLINE });
+        await promise;
+        expect(pool.size).toBe(2);
+    });
+
     it("Rejects start() when a worker sends an ERROR message.", async () => {
         const pool = new ThreadPool(1);
         const promise = pool.start({ worker: "./MyWorker.js" }, 1);
@@ -180,6 +196,48 @@ describe("ThreadPool Unit Tests.", () => {
         const promise = pool.start({ entry: "./worker.js" }, 1);
         createdWorkers[0].emit("error", new Error("crashed during startup"));
         await expect(promise).rejects.toThrow("crashed during startup");
+    });
+
+    it("Terminates every worker created during a failed multi-worker start() instead of leaking siblings.", async () => {
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ entry: "./worker.js" }, 2);
+        expect(createdWorkers).toHaveLength(2);
+
+        createdWorkers[0].emit("error", new Error("worker 0 crashed"));
+        await expect(promise).rejects.toThrow("worker 0 crashed");
+
+        for (const worker of createdWorkers) {
+            expect(worker.terminate).toHaveBeenCalled();
+        }
+        expect(pool.workers).toHaveLength(0);
+    });
+
+    it("Only fails start() once even if multiple workers error concurrently.", async () => {
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ entry: "./worker.js" }, 2);
+
+        // Both workers error before either becomes ready. The second failStartup() call must be a no-op:
+        // it must not re-terminate already-terminated workers or attempt to reject an already-settled promise.
+        createdWorkers[0].emit("error", new Error("first failure"));
+        const secondWorkerTerminate = createdWorkers[1].terminate;
+        createdWorkers[1].emit("error", new Error("second failure"));
+
+        await expect(promise).rejects.toThrow("first failure");
+        expect(secondWorkerTerminate).toHaveBeenCalledTimes(1);
+    });
+
+    it("Ignores late 'online'/'message' events that arrive after start() has already failed.", async () => {
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ worker: "./MyWorker.js" }, 2);
+
+        createdWorkers[0].emit("message", { type: WorkerMessageType.ERROR, data: new Error("boom") });
+        await expect(promise).rejects.toThrow("boom");
+
+        // The pool is already torn down (workers terminated/cleared); the surviving worker's late readiness
+        // signals must not throw or attempt to resolve/reject the already-settled promise.
+        expect(() => createdWorkers[1].emit("online")).not.toThrow();
+        expect(() => createdWorkers[1].emit("message", { type: WorkerMessageType.ONLINE })).not.toThrow();
+        expect(pool.workers).toHaveLength(0);
     });
 
     it("Resolves immediately without creating workers when the requested count is zero.", async () => {
