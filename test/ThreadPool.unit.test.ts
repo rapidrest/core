@@ -269,6 +269,40 @@ describe("ThreadPool Unit Tests.", () => {
         expect(pool.workers[0]).toBe(createdWorkers[1]);
     });
 
+    it("Notifies registered 'online' callbacks for entry-mode pools via the native online event.", async () => {
+        const pool = new ThreadPool(1);
+        const onlineIds: number[] = [];
+        pool.on("online", (id: number) => onlineIds.push(id));
+
+        const promise = pool.start({ entry: "./worker.js" }, 1);
+        createdWorkers[0].emit("online");
+        await promise;
+
+        expect(onlineIds).toEqual([0]);
+    });
+
+    it("Recovers start()'s promise when a worker exits and is replaced via restartOnExit before ever becoming ready.", async () => {
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js", restartOnExit: true }, 1);
+        expect(createdWorkers).toHaveLength(1);
+
+        // The initial worker crashes before ever reporting ready. restartOnExit replaces it, and the
+        // *replacement* becoming ready must still resolve start()'s promise instead of leaving it hanging
+        // forever with no listener tracking the new worker's readiness.
+        createdWorkers[0].emit("exit", 1);
+        expect(createdWorkers).toHaveLength(2);
+
+        let resolved = false;
+        void promise.then(() => (resolved = true));
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+
+        createdWorkers[1].emit("online");
+        await promise;
+        expect(pool.size).toBe(1);
+        expect(pool.workers[0]).toBe(createdWorkers[1]);
+    });
+
     it("Recreates the worker on exit when restartOnExit is set.", async () => {
         const pool = new ThreadPool(1);
         const promise = pool.start({ entry: "./worker.js", restartOnExit: true }, 1);

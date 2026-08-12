@@ -117,13 +117,7 @@ export class ObjectFactory {
     public async destroy(objs?: any | any[]): Promise<void> {
         // If no set of objects was provided we want to destroy everything
         if (!objs) {
-            objs = [];
-            this.instances.forEach((value, key) => {
-                if (!value.name) {
-                    value.name = key;
-                }
-                objs.push(value);
-            });
+            objs = Array.from(this.instances.values());
         } else {
             // If only a single object was passed in we need to convert this to an array
             if (!Array.isArray(objs)) {
@@ -133,7 +127,11 @@ export class ObjectFactory {
 
         // Go through each object and call its destructor, if available
         for (const obj of objs) {
-            const name: string = obj.name ?? obj._name;
+            // `_name` - the factory's own non-enumerable bookkeeping field set in `newInstance()` - is the only
+            // reliable source of an instance's registry key. A business-domain `.name` property (e.g. an
+            // `Organization`/`Team` entity that legitimately has a `name` field) must never be consulted here:
+            // doing so would resolve to the wrong key and leave the actually-registered instance undeleted.
+            const name: string = obj._name;
             const meta = this._getOrBuildMetadata(obj);
 
             if (meta.destroyMethod) {
@@ -278,26 +276,53 @@ export class ObjectFactory {
      */
     public getInitMethods(obj: any): Function[] {
         const results: Function[] = [];
+        const seen: Set<string> = new Set();
 
+        // Covers metadata defined directly on a plain object instance rather than via a class's prototype chain
+        // (e.g. `Reflect.defineMetadata(..., obj, "someMethod")`), which the prototype-chain scan below - by
+        // design, since it starts at `Object.getPrototypeOf(obj)` - never visits.
         for (const member in obj) {
-            const initialize: boolean = Reflect.getMetadata("rrst:initialize", obj, member);
-            if (initialize) {
+            if (Reflect.getMetadata("rrst:initialize", obj, member) && !seen.has(member)) {
+                seen.add(member);
                 results.push(obj[member]);
             }
         }
 
-        let proto = Object.getPrototypeOf(obj);
-        while (proto) {
-            for (const member of Object.getOwnPropertyNames(proto)) {
-                const initialize: boolean = Reflect.getMetadata("rrst:initialize", proto, member);
-                if (initialize) {
-                    results.push(obj[member]);
-                }
+        // Reuses the same cached prototype-chain scan that `initialize()` uses (via `_getOrBuildMetadata`), so
+        // this method and the actual `@Init` invocation performed during instantiation can never disagree about
+        // which methods on a class are considered `@Init` methods.
+        for (const member of this._getOrBuildMetadata(obj).initMethods) {
+            if (!seen.has(member)) {
+                seen.add(member);
+                results.push(obj[member]);
             }
-            proto = Object.getPrototypeOf(proto);
         }
 
         return results;
+    }
+
+    /**
+     * Derives the class name/fqn used to index `instances`/`classes` from a class type, fully qualified name
+     * string, or (defensively) a live instance. Shared by `getInstance`, `newInstance` and `register` so the
+     * three can never disagree about which string identifies a given class - a custom `.fqn` (e.g. one assigned
+     * by `ClassLoader`) always takes precedence over the bare `.name`, honored consistently everywhere a class
+     * identity is resolved.
+     *
+     * @param typeOrInstance The class type, fqn string, or instance to derive the name from.
+     */
+    private static classNameOf(typeOrInstance: any): string {
+        if (typeof typeOrInstance === "string") {
+            return typeOrInstance;
+        }
+        if (!typeOrInstance) {
+            return "";
+        }
+        return (
+            typeOrInstance.fqn ||
+            typeOrInstance.name ||
+            (typeOrInstance.constructor && typeOrInstance.constructor.name) ||
+            ""
+        );
     }
 
     /**
@@ -307,7 +332,6 @@ export class ObjectFactory {
      * @param nameOrType The unique name or class type of the object to retrieve.
      * @returns The object instance associated with the given name if found, otherwise `undefined`.
      */
-    // TODO: Investigate name vs fqn
     public getInstance<T>(nameOrType: any): T | undefined {
         // Make sure we have a valid type name. Must run before `nameOrType` is dereferenced below, otherwise
         // `getInstance(null)`/`getInstance(undefined)` throw a raw TypeError instead of this intended error.
@@ -315,12 +339,7 @@ export class ObjectFactory {
             throw new Error("No valid nameOrType was specified.");
         }
 
-        let search: string = "";
-        if (typeof nameOrType === "string") {
-            search = nameOrType;
-        } else {
-            search = nameOrType.name ? nameOrType.name : nameOrType.constructor ? nameOrType.constructor.name : search;
-        }
+        const search: string = ObjectFactory.classNameOf(nameOrType);
 
         // First search for the exact name or with `:default`
         let result: T = this.instances.get(search.includes(":") ? search : search + ":default");
@@ -346,20 +365,38 @@ export class ObjectFactory {
      * @param options The options to use when instantiating the new class object.
      */
     public newInstance<T>(type: any, options?: InstanceOptions): T | Promise<T> {
-        let name: string = options?.name || uuidV4();
+        const explicitName: string | undefined = options?.name;
+        let name: string = explicitName || uuidV4();
         const initialize: boolean = options?.initialize !== undefined ? options.initialize : true;
         const args: any[] = options?.args || [];
 
-        // If an class type was given extract it's fqn
-        const className = typeof type === "string" ? type : type.fqn || type.name || type.constructor.name;
+        // If a class type was given extract its fqn
+        const className = ObjectFactory.classNameOf(type);
 
-        // Names are namespace specific by type. Prepend the type to the name if not already done.
-        if (name && !name.includes(className)) {
+        // Names are namespace specific by type. Prepend the type to the name if not already done - checked via
+        // the literal "ClassName:" prefix rather than mere substring containment, since a caller-supplied name
+        // that merely *contains* the class name somewhere (e.g. "MyClassPrimary" for class "MyClass") is not
+        // actually namespaced and must still be prefixed, or a later lookup/promotion keyed on that prefix
+        // (see `destroy()`) would never find it.
+        if (name && !name.startsWith(`${className}:`)) {
             name = `${className}:${name}`;
         }
 
-        // First check to see if an instance was already created for the given name
-        if (name && this.instances.has(name)) {
+        if (explicitName === "default") {
+            // `@Inject`'s implicit default name (it always resolves `options.name` to `"default"` when the
+            // caller doesn't specify one) - and an explicit `{ name: "default" }` - requests "the" singleton
+            // instance of this class. That should fall back to any existing instance of the class, the same
+            // fallback `getInstance()` provides, rather than only ever matching the literal "ClassName:default"
+            // key. Without this, @Inject would silently create a second, disconnected instance whenever a class
+            // had already been instantiated under a different name, breaking singleton reuse and circular-
+            // dependency resolution. This intentionally does not apply to a bare `newInstance(Type)` call with
+            // no name at all (handled below), which always creates a fresh instance.
+            const existingName: string | undefined = this.instances.has(name) ? name : this._firstByClass.get(className);
+            if (existingName && this.instances.has(existingName)) {
+                return this.instances.get(existingName);
+            }
+        } else if (name && this.instances.has(name)) {
+            // First check to see if an instance was already created for the given name
             return this.instances.get(name);
         }
 
@@ -426,6 +463,10 @@ export class ObjectFactory {
      * @param fqn The fully qualified name of the class to register. If not specified, the class name will be used.
      */
     public register(clazz: any, fqn?: string): void {
+        // Deliberately not `classNameOf()`: unlike `getInstance`/`newInstance`, `register` only ever expects an
+        // actual class type, never a live instance, so it must not fall back to `clazz.constructor.name` - doing
+        // so would silently "succeed" (registering the instance itself under its class's name) if a caller
+        // mistakenly passes an instance instead of a class.
         const name: string = fqn ? fqn : clazz.fqn || clazz.name;
         if (!name) {
             this.logger.info(`Unable to register class ${name} for ${clazz}/${fqn}`);

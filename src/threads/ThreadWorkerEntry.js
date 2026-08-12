@@ -29,9 +29,6 @@ if (workerData) {
         parentPort.on("message", async (msg) => {
             try {
                 switch (msg.type) {
-                    case "_StartWorker":
-                        await worker?.start();
-                        break;
                     case "_StopWorker":
                         logger.debug(`Stopping worker...`);
                         await worker?.stop();

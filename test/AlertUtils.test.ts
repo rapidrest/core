@@ -82,6 +82,29 @@ describe("AlertUtils Tests.", () => {
             expect(id).toBe("alert1");
         });
 
+        it("Truncates the final, substituted message rather than the pre-substitution template.", async () => {
+            let capturedMessage = "";
+            nock(serviceUrl)
+                .post("/", (body) => {
+                    capturedMessage = body.message;
+                    return true;
+                })
+                .reply(200, { requestId: "req-trunc" });
+            nock(serviceUrl)
+                .get("/requests/req-trunc")
+                .reply(200, { success: true, alertId: "alert-trunc" });
+
+            const alertUtils = new AlertUtils({ auth: "token", serviceUrl });
+            // The template itself is short (well under the 130-char limit), but the substituted value is long -
+            // if truncation ran before substitution (the bug), the final message would exceed the limit.
+            const id = await alertUtils.send(
+                makeAlert({ message: "Error: {{reason}}" }),
+                { reason: "x".repeat(300) },
+            );
+            expect(id).toBe("alert-trunc");
+            expect(capturedMessage.length).toBeLessThanOrEqual(130);
+        });
+
         it("Truncates tags beyond MAX_TAGS without throwing.", async () => {
             nock(serviceUrl).post("/").reply(200, { requestId: "req-tags" });
             nock(serviceUrl)

@@ -1,5 +1,6 @@
 export * from "./ApiError.js";
 export * from "./AlertUtils.js";
+export * from "./CacheUtils.js";
 export * from "./ClassLoader.js";
 export * from "./decorators/index.js";
 export * from "./FileUtils.js";

@@ -276,6 +276,16 @@ describe("MessagingUtils Tests.", () => {
         expect(await messagingUtils.sendSMS("test", {})).not.toBeDefined();
     });
 
+    it("Cannot send SMS, missing from.sms configuration (fails gracefully instead of throwing).", async () => {
+        const config = (await import("./config.js")).default;
+        configuration.twilio = { accountSid: "AC_test", token: "test-token" };
+        configuration.templates.test.sms = "Your code is {{code}}";
+        delete configuration.templates.from.sms;
+        config.overrides(configuration);
+        const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+        expect(await messagingUtils.sendSMS("test", { code: "1234" })).not.toBeDefined();
+    });
+
     it("Cannot setup twilio, missing accountSid.", async () => {
         const config = (await import("./config.js")).default;
         configuration.twilio = { accountSid: "", token: "test-token" };
@@ -351,6 +361,22 @@ describe("MessagingUtils Tests.", () => {
             // The second instance must still populate its own compiled-template cache rather than short-circuit
             // on the shared `loaded` flag, otherwise sendEmail() below would throw a TypeError.
             await expect(messagingUtilsB.sendEmail("test", { name: "World" })).resolves.toBeDefined();
+        });
+
+        it("Compiles a field added to the template config after the first load instead of leaving a stale delegate.", async () => {
+            const config = (await import("./config.js")).default;
+            // Start with `subject` absent so the first loadTemplate() call has nothing to compile for it.
+            configuration.templates.test = { enabled: true };
+            config.overrides(configuration);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+
+            const tpl1 = messagingUtils.loadTemplate("test");
+            expect(tpl1.subject).toBeUndefined();
+
+            // Simulate a live config reload adding `subject` to the same (shared) template object after the
+            // first load - this must not leave sendEmail() calling an undefined compiled delegate.
+            tpl1.subject = "Alert Subject {{name}}";
+            await expect(messagingUtils.sendEmail("test", { name: "World" })).resolves.toBeDefined();
         });
 
         it("Does not load html/text when htmlPath/textPath point to non-existent files.", async () => {

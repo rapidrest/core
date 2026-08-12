@@ -174,33 +174,44 @@ export class MessagingUtils {
         }
 
         const tplConfig: Template = this.templates[name];
-        // Gate on this instance's own compiled-template cache rather than `tplConfig.loaded`: the latter lives on
-        // the (potentially shared, config-provided) `Template` object, so a second instance bound to the same
-        // config could otherwise see `loaded === true` set by another instance without ever populating its own
-        // `_compiledTemplates` cache.
-        if (this._loadedTemplates.has(name)) {
-            return tplConfig;
+
+        // Load html/text from disk once per instance (I/O). Gated on this instance's own `_loadedTemplates` set
+        // rather than `tplConfig.loaded`: the latter lives on the (potentially shared, config-provided)
+        // `Template` object, so a second instance bound to the same config could otherwise see `loaded === true`
+        // set by another instance without ever reading the files into its own template config.
+        if (!this._loadedTemplates.has(name)) {
+            // Check if a path is specified for the HTML template. If so load it.
+            if (tplConfig.htmlPath && fs.existsSync(tplConfig.htmlPath)) {
+                tplConfig.html = fs.readFileSync(tplConfig.htmlPath, { encoding: "utf-8" });
+            }
+
+            // Check if a path is specified for the text template. If so load it.
+            if (tplConfig.textPath && fs.existsSync(tplConfig.textPath)) {
+                tplConfig.text = fs.readFileSync(tplConfig.textPath, { encoding: "utf-8" });
+            }
+
+            tplConfig.loaded = true;
+            this._loadedTemplates.add(name);
         }
 
-        // Check if a path is specified for the HTML template. If so load it.
-        if (tplConfig.htmlPath && fs.existsSync(tplConfig.htmlPath)) {
-            tplConfig.html = fs.readFileSync(tplConfig.htmlPath, { encoding: "utf-8" });
+        // Compile and cache a Handlebars delegate for each field that's currently present but not yet compiled
+        // for *this instance*, rather than gating compilation on the one-time "have we ever loaded this
+        // template" check above. Without this, a field added to the template config after the first load (e.g.
+        // a live config reload that only sets `subject` once other fields already exist) would never get
+        // compiled, leaving sendEmail()/sendSlack()/sendSMS() to call an `undefined` delegate and throw.
+        const fields: Array<[string, string | undefined]> = [
+            ["text", tplConfig.text],
+            ["html", tplConfig.html],
+            ["subject", tplConfig.subject],
+            ["sms", tplConfig.sms],
+            ["slack_text", tplConfig.slack_text],
+        ];
+        for (const [field, value] of fields) {
+            const cacheKey = `${name}:${field}`;
+            if (value && !this._compiledTemplates.has(cacheKey)) {
+                this._compiledTemplates.set(cacheKey, handlebars.compile(value));
+            }
         }
-
-        // Check if a path is specified for the text template. If so load it.
-        if (tplConfig.textPath && fs.existsSync(tplConfig.textPath)) {
-            tplConfig.text = fs.readFileSync(tplConfig.textPath, { encoding: "utf-8" });
-        }
-
-        tplConfig.loaded = true;
-        this._loadedTemplates.add(name);
-
-        // Compile and cache all Handlebars delegates on first load
-        if (tplConfig.text) this._compiledTemplates.set(`${name}:text`, handlebars.compile(tplConfig.text));
-        if (tplConfig.html) this._compiledTemplates.set(`${name}:html`, handlebars.compile(tplConfig.html));
-        if (tplConfig.subject) this._compiledTemplates.set(`${name}:subject`, handlebars.compile(tplConfig.subject));
-        if (tplConfig.sms) this._compiledTemplates.set(`${name}:sms`, handlebars.compile(tplConfig.sms));
-        if (tplConfig.slack_text) this._compiledTemplates.set(`${name}:slack_text`, handlebars.compile(tplConfig.slack_text));
 
         return tplConfig;
     }
@@ -298,6 +309,14 @@ export class MessagingUtils {
 
         const tplConfig: Template = this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.sms) {
+            return undefined;
+        }
+
+        // Mirrors sendEmail()'s equivalent guard: fail gracefully (rather than throwing a TypeError from
+        // dereferencing `this.templates.from.sms` below) when `from.sms` isn't configured, e.g. because
+        // `templates.from` was only ever set up for e-mail.
+        if (!this.templates?.from?.sms) {
+            this.logger?.warn("Unable to send SMS missing from.sms in message template");
             return undefined;
         }
 

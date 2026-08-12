@@ -2,10 +2,13 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import fs from "fs";
+import { CacheUtils } from "./CacheUtils.js";
+import { FileUtils } from "./FileUtils.js";
 import { Logger } from "./Logger.js";
 import path from "path";
 import { Axios } from "axios";
 import YAML from "js-yaml";
+import { StringUtils } from "./StringUtils.js";
 
 const logger = Logger();
 
@@ -122,7 +125,7 @@ export class OASUtils {
 
         // Compile regex once before the loop; escape special chars to handle schema names with dots/brackets.
         // Anchored so e.g. "User" doesn't also match "AdminUser"/"UserProfile".
-        const nameRegex = new RegExp("^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
+        const nameRegex = new RegExp("^" + StringUtils.escapeRegExp(name) + "$", "i");
         for (const schemaName in spec.components.schemas) {
             if (nameRegex.test(schemaName)) {
                 return spec.components.schemas[schemaName];
@@ -207,6 +210,10 @@ export class OASUtils {
         // restrictions that a caller applies on a later call for the same `file` key. When a caller supplies either
         // restriction, the other category is denied by default rather than left unchecked: e.g. a caller that only
         // sets `allowedDirs` (believing `file` to be a local path) must not have a URL slip through ungated.
+        // `resolvedFile` (for a local path) is the realpath'd, already-validated path returned by
+        // `FileUtils.assertContained` - reading through it below (rather than the original `file`) closes the
+        // symlink-escape gap a purely lexical containment check would leave open.
+        let resolvedFile: string | undefined;
         if (options?.allowedDirs || options?.allowedHosts) {
             if (isUrl) {
                 const hostname = new URL(file).hostname;
@@ -217,12 +224,15 @@ export class OASUtils {
                 if (!options.allowedDirs) {
                     throw new Error(`File "${file}" is not within an allowed directory.`);
                 }
-                const resolved = path.resolve(file);
-                const allowed = options.allowedDirs.some(dir => {
-                    const rel = path.relative(path.resolve(dir), resolved);
-                    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-                });
-                if (!allowed) {
+                for (const dir of options.allowedDirs) {
+                    try {
+                        resolvedFile = FileUtils.assertContained(dir, path.resolve(file));
+                        break;
+                    } catch {
+                        // Not contained within this particular allowed directory - try the next one.
+                    }
+                }
+                if (!resolvedFile) {
                     throw new Error(`File "${file}" is not within an allowed directory.`);
                 }
             }
@@ -234,9 +244,10 @@ export class OASUtils {
 
         let apiSpec: any = null;
 
-        if (fs.existsSync(file)) {
+        if (fs.existsSync(resolvedFile ?? file)) {
+            const readFile = resolvedFile ?? file;
             let fileType = path.extname(file);
-            let data: string = fs.readFileSync(file, "utf8");
+            let data: string = fs.readFileSync(readFile, "utf8");
 
             if (fileType === ".yaml") {
                 logger.info("Loading YAML: " + file);
@@ -249,7 +260,11 @@ export class OASUtils {
             }
         } else if (_urlRegex.test(file)) {
             const axios: Axios = new Axios({ baseURL: file });
-            const response: any = await axios.get(file);
+            // When `allowedHosts` is being enforced, redirects must not be followed automatically: axios's
+            // default behavior would otherwise let a request to an allow-listed host silently 30x to an
+            // arbitrary/internal one (e.g. cloud metadata endpoints), defeating the allow-list entirely. Disabling
+            // redirects makes axios reject on any 3xx response instead, surfacing as a normal request failure.
+            const response: any = await axios.get(file, options?.allowedHosts ? { maxRedirects: 0 } : undefined);
             if (response && response.data) {
                 if(typeof response.data === "string"){
                     // Assume the file is a YAML first. If not we'll try JSON
@@ -271,16 +286,9 @@ export class OASUtils {
         }
 
         if (apiSpec !== null) {
+            // Bound cache growth by evicting the oldest entry once at capacity (Map preserves insertion order).
             if (_specCache.size >= _specCacheMaxSize) {
-                // Bound cache growth by evicting the oldest entry (Map preserves insertion order). `oldestKey` is
-                // only `undefined` if the cache were empty, which can't happen here since `size >= 1` (the `>=
-                // _specCacheMaxSize` check above only passes once at least one entry exists); kept as defense in
-                // depth.
-                const oldestKey: string | undefined = _specCache.keys().next().value;
-                /* v8 ignore next 3 */
-                if (oldestKey !== undefined) {
-                    _specCache.delete(oldestKey);
-                }
+                CacheUtils.evictOldest(_specCache);
             }
             _specCache.set(file, apiSpec);
         }

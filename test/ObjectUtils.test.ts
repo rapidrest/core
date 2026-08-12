@@ -276,4 +276,24 @@ describe("ObjectUtils Tests", () => {
         parent.child = child;
         expect(() => ObjectUtils.validate(parent, undefined, true)).not.toThrow();
     });
+
+    it("Runs the @Validator function for a falsy-but-valid property value (0).", () => {
+        class TestFalsyValidatorClass {
+            @Validator(ValidationUtils.checkVersion)
+            public version: number = 0;
+        }
+        const spy = { called: false, value: undefined as any };
+        class SpyValidatorClass {
+            @Validator((val: any) => {
+                spy.called = true;
+                spy.value = val;
+                return val;
+            })
+            public count: number = 0;
+        }
+        ObjectUtils.validate(new TestFalsyValidatorClass());
+        ObjectUtils.validate(new SpyValidatorClass());
+        expect(spy.called).toBe(true);
+        expect(spy.value).toBe(0);
+    });
 });

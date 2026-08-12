@@ -4,6 +4,7 @@
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
+import { FileUtils } from "./FileUtils.js";
 
 const sepRegex = new RegExp("\\" + path.sep, "g");
 /**
@@ -102,87 +103,81 @@ export class ClassLoader {
     }
 
     /**
+     * Imports the module at `fullpath` and registers each of its exports as a class under its fully qualified
+     * name, shared by both the JavaScript and TypeScript loading branches of `load()` so a future change to
+     * how exports are turned into registered classes only needs to be made in one place.
+     */
+    private async registerModule(fullpath: string, pkg: string, fileName: string): Promise<void> {
+        const mod: any = await import(pathToFileURL(fullpath).href);
+        /* v8 ignore else -- unreachable: dynamic `import()` either resolves to a truthy namespace object or rejects, it never resolves to a falsy value. */
+        if (mod) {
+            for (let name in mod) {
+                let clazz: any = mod[name];
+                let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? fileName.split(".")[0] : name}`;
+                clazz.fqn = fqn;
+                this.classes.set(fqn, clazz);
+            }
+        } else {
+            throw new Error("Failed to load module file: " + fullpath);
+        }
+    }
+
+    /**
      * Loads all modules exports contained in the directory specified. The folder must be a child
      * directory to the `rootDir` parameter passed in to the constructor.
      *
      * @param dir The directory, relative to `rootDir`, containing modules to load.
      */
     public async load(dir: string = ""): Promise<void> {
-        let fqp: string = path.resolve(path.join(this.rootDir, dir));
-
-        // Ensure the resolved directory is still contained within rootDir. Prevents a caller-supplied `dir`
-        // (e.g. containing "../") from escaping rootDir and dynamically importing/executing arbitrary modules
-        // found elsewhere on disk.
-        const rel = path.relative(this.rootDir, fqp);
-        if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
-            throw new Error(`Directory "${dir}" escapes the allowed root directory "${this.rootDir}".`);
-        }
+        // Ensure the resolved directory is still contained within rootDir, following symlinks (`assertContained`
+        // resolves the real path of the target and re-validates against it), so a caller-supplied `dir` - or a
+        // symlink anywhere in its path - can't escape rootDir and dynamically import/execute arbitrary modules
+        // found elsewhere on disk. `fqp` is reassigned to the validated realpath so `readdir()` below always
+        // reads through the path that was actually checked.
+        let fqp: string = FileUtils.assertContained(this.rootDir, path.resolve(path.join(this.rootDir, dir)));
 
         let files: fs.Dirent[] = await fs.promises.readdir(fqp, { withFileTypes: true });
-        for (let file of files) {
-            // Is the file in the ignore list?
-            let skipFile: boolean = false;
-            for (const iPath of this.ignore) {
-                if (file.name.match(iPath)) {
-                    skipFile = true;
-                    break;
-                }
-            }
-            if (skipFile) {
-                continue;
-            }
-
-            let extension = path.extname(file.name);
-            if (!extension) {
-                extension = file.name;
-            }
-
-            let relpath: string = path.relative(this.rootDir, fqp);
-            let fullpath: string = path.resolve(path.join(this.rootDir, relpath, file.name));
-            let pkg: string = relpath.replace(sepRegex, ".");
-
-            // `fs.Dirent.isDirectory()`/extension matching below reflect the directory entry itself, not
-            // what it points to. Without resolving symlinks here, a symlink placed inside the scanned tree
-            // could point at an arbitrary file or directory outside rootDir and still be recursed into or
-            // dynamically imported below, defeating the containment check performed on `dir` above.
-            if (file.isSymbolicLink()) {
-                const realpath: string = await fs.promises.realpath(fullpath);
-                const relReal: string = path.relative(this.rootDir, realpath);
-                if (relReal !== "" && (relReal.startsWith("..") || path.isAbsolute(relReal))) {
-                    throw new Error(`Symlink "${fullpath}" escapes the allowed root directory "${this.rootDir}".`);
-                }
-            }
-
-            if (file.isDirectory()) {
-                let subdir: string = path.join(dir, file.name);
-                await this.load(subdir);
-            } else if (this.includeJavaScript && extension.match(/^\.(js|cjs|mjs)$/)) {
-                const mod: any = await import(pathToFileURL(fullpath).href);
-                /* v8 ignore else -- unreachable: dynamic `import()` either resolves to a truthy namespace object or rejects, it never resolves to a falsy value. */
-                if (mod) {
-                    for (let name in mod) {
-                        let clazz: any = mod[name];
-                        let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? file.name.split(".")[0] : name}`;
-                        clazz.fqn = fqn;
-                        this.classes.set(fqn, clazz);
+        // Processed concurrently via `Promise.all` since sibling entries in a directory are independent of one
+        // another; `Promise.all` still `await`s every entry (and propagates the first rejection) before `load()`
+        // itself resolves, so parallelizing here only shortens cold-start time rather than changing behavior.
+        await Promise.all(
+            files.map(async (file) => {
+                // Is the file in the ignore list?
+                for (const iPath of this.ignore) {
+                    if (file.name.match(iPath)) {
+                        return;
                     }
-                } else {
-                    throw new Error("Failed to load module file: " + fullpath);
                 }
-            } else if (this.includeTypeScript && extension.match(/^\.(ts|cts|mts|tsx)$/)) {
-                const mod: any = await import(pathToFileURL(fullpath).href);
-                /* v8 ignore else -- unreachable: dynamic `import()` either resolves to a truthy namespace object or rejects, it never resolves to a falsy value. */
-                if (mod) {
-                    for (let name in mod) {
-                        let clazz: any = mod[name];
-                        let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? file.name.split(".")[0] : name}`;
-                        clazz.fqn = fqn;
-                        this.classes.set(fqn, clazz);
-                    }
-                } else {
-                    throw new Error("Failed to load module file: " + fullpath);
+
+                let relpath: string = path.relative(this.rootDir, fqp);
+                let pkg: string = relpath.replace(sepRegex, ".");
+
+                // Resolved and validated up front - following and re-checking any symlink via `assertContained` -
+                // so the entry is only ever recursed into, imported from, or otherwise touched via a path that's
+                // already been confirmed to stay within rootDir. Using the returned (realpath'd) value for the
+                // actual `import()` below, rather than re-deriving the path afterwards, avoids re-opening the
+                // symlink-swap TOCTOU window the check just closed.
+                let fullpath: string = FileUtils.assertContained(this.rootDir, path.join(fqp, file.name));
+
+                let extension = path.extname(file.name);
+                if (!extension) {
+                    extension = file.name;
                 }
-            }
-        }
+
+                // `Dirent.isDirectory()` reflects the directory entry itself, not what it points to, so a
+                // symlinked directory falls through to the extension-matching branches below rather than being
+                // recursed into - preserved deliberately: following it here (e.g. via `fs.statSync().isDirectory()`)
+                // would let a symlink that points back at one of its own ancestors send `load()` into unbounded
+                // recursion. Any symlink, directory or file, is still fully validated above via `assertContained`.
+                if (file.isDirectory()) {
+                    let subdir: string = path.join(dir, file.name);
+                    await this.load(subdir);
+                } else if (this.includeJavaScript && extension.match(/^\.(js|cjs|mjs)$/)) {
+                    await this.registerModule(fullpath, pkg, file.name);
+                } else if (this.includeTypeScript && extension.match(/^\.(ts|cts|mts|tsx)$/)) {
+                    await this.registerModule(fullpath, pkg, file.name);
+                }
+            }),
+        );
     }
 }

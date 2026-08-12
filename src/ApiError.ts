@@ -1,4 +1,7 @@
+import { Logger } from "./Logger.js";
 import { StringUtils } from "./StringUtils.js";
+
+const logger = Logger();
 
 /**
  * Describes an error that originates from a API service. This class extends the standard `Error` class to include
@@ -28,7 +31,12 @@ export class ApiError extends Error {
         try {
             this.message = this.ApiMessageTemplate(message, templateVariables);
         } catch (error) {
-            // NO-OP 
+            // Falls back to the raw, unsubstituted `message` (already set via `super(message)` above) rather
+            // than propagating - a malformed template/templateVariables shouldn't prevent the error itself from
+            // being constructed and thrown. Logged rather than silently swallowed so a caller-supplied template
+            // bug is still discoverable.
+            logger.warn(`Failed to apply template variables to ApiError message: ${code}`);
+            logger.debug(error);
         }
         Object.setPrototypeOf(this, ApiError.prototype);
     }

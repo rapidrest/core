@@ -54,6 +54,21 @@ describe("FileUtils Tests", () => {
         expect(fs.readFileSync("tests-fileutils/test.exists.txt", "utf8")).toBe("New.");
     });
 
+    it("writeFile propagates a write error that isn't an overwrite conflict.", async () => {
+        // Writing (with overwrite=true, so the "wx" exclusive flag isn't used) to a path that is itself an
+        // existing directory triggers a real fs-level error (EISDIR on POSIX, EPERM on Windows) - a non-EEXIST
+        // error that must be re-thrown as-is rather than misreported as an overwrite conflict.
+        const dirPath = "tests-fileutils/a-directory";
+        fs.mkdirSync(dirPath, { recursive: true });
+        try {
+            await FileUtils.writeFile("tests-fileutils/test.txt", dirPath, "data", true);
+            throw new Error("Failed to throw error.");
+        } catch (err: any) {
+            expect(err.message).not.toContain("already exists");
+            expect(err.code).not.toBe("EEXIST");
+        }
+    });
+
     it("writeFile succeeds when rootDir contains both paths.", async () => {
         const rootDir = path.resolve("tests-fileutils");
         await FileUtils.writeFile(
@@ -159,6 +174,38 @@ describe("FileUtils Tests", () => {
         expect(fs.readFileSync("tests-fileutils/test.bincopy-overwrite.txt", "utf8")).toBe("This is a test.");
     });
 
+    it("copyBinaryFile throws a clear TypeError when rootDir/overwrite arguments look swapped.", async () => {
+        fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
+        await expect(
+            FileUtils.copyBinaryFile("tests-fileutils/test.txt", "tests-fileutils/test.copy6.txt", {}, true as any),
+        ).rejects.toThrow('"rootDir" must be a string');
+        await expect(
+            FileUtils.copyBinaryFile(
+                "tests-fileutils/test.txt",
+                "tests-fileutils/test.copy7.txt",
+                {},
+                undefined,
+                "true" as any,
+            ),
+        ).rejects.toThrow('"overwrite" must be a boolean');
+    });
+
+    it("copyBinaryFile propagates a copy error that isn't an overwrite conflict.", async () => {
+        // Copying (with overwrite=true, so COPYFILE_EXCL isn't used) onto a path that is itself an existing
+        // directory triggers a real fs-level error (EISDIR on POSIX, EPERM on Windows) - a non-EEXIST error
+        // that must be re-thrown as-is rather than misreported as an overwrite conflict.
+        fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
+        const dirPath = "tests-fileutils/a-binary-directory";
+        fs.mkdirSync(dirPath, { recursive: true });
+        try {
+            await FileUtils.copyBinaryFile("tests-fileutils/test.txt", dirPath, {}, undefined, true);
+            throw new Error("Failed to throw error.");
+        } catch (err: any) {
+            expect(err.message).not.toContain("already exists");
+            expect(err.code).not.toBe("EEXIST");
+        }
+    });
+
     it("copyBinaryFile throws when the source file does not exist.", async () => {
         try {
             await FileUtils.copyBinaryFile("tests-fileutils/does-not-exist.txt", "tests-fileutils/test.copy4.txt");
@@ -239,6 +286,33 @@ describe("FileUtils Tests", () => {
             throw new Error("Failed to throw error.");
         } catch (err: any) {
             expect(err.message).toContain("escapes the allowed root directory");
+        }
+    });
+
+    it("writeFile throws when the destination is reached via a symlink that escapes rootDir.", async () => {
+        // A purely lexical containment check would see "tests-fileutils/escape-link/out.txt" as contained
+        // within "tests-fileutils", even though the symlink itself resolves outside of it.
+        const rootDir = path.resolve("tests-fileutils");
+        const outsideDir = path.resolve("tests-fileutils-symlink-outside");
+        fs.mkdirSync(outsideDir, { recursive: true });
+        const linkPath = path.join(rootDir, "escape-link");
+        try {
+            fs.symlinkSync(outsideDir, linkPath, "junction");
+            try {
+                await FileUtils.writeFile(
+                    "tests-fileutils/test.txt",
+                    path.join(linkPath, "out.txt"),
+                    "Contents.",
+                    true,
+                    rootDir
+                );
+                throw new Error("Failed to throw error.");
+            } catch (err: any) {
+                expect(err.message).toContain("escapes the allowed root directory");
+            }
+        } finally {
+            fs.rmSync(linkPath, { recursive: true, force: true });
+            rimraf.sync(outsideDir);
         }
     });
 

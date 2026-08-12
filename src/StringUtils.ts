@@ -9,6 +9,17 @@
  */
 export class StringUtils {
     /**
+     * Escapes all regular expression metacharacters in `str` so it can be safely embedded in a `RegExp` pattern
+     * and matched as a literal string.
+     *
+     * @param {string} str The string to escape.
+     * @returns {string} The escaped string.
+     */
+    public static escapeRegExp(str: string): string {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    /**
      * Returns a list of all parameters contained within the string. A parameter is a bracket delimited substring
      * (e.g. /my/{key}/with/{id}).
      *
@@ -51,7 +62,7 @@ export class StringUtils {
         // otherwise be used for regex injection or catastrophic backtracking (ReDoS).
         const regexCache = new Map<string, RegExp>();
         for (const key in variables) {
-            const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const escapedKey = StringUtils.escapeRegExp(key);
             regexCache.set(key, new RegExp("(\\{\\{" + escapedKey + "\\}\\})", "g"));
         }
 

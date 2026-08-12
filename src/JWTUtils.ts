@@ -148,35 +148,61 @@ export interface JWTUtilsConfig {
  * @author Jean-Philippe Steinmetz <rapidrests@gmail.com>
  */
 export class JWTUtils {
-    private static _parsedKeyCache = new Map();
+    /** HMAC algorithm names that must never be permitted alongside a non-HMAC secret (see `assertSafeAlgorithm`). */
+    private static readonly HMAC_ALGORITHMS = new Set(["HS256", "HS384", "HS512"]);
 
     /**
-     * Throws if `config.secret` looks like an asymmetric (RSA/EC) key but `config.options.algorithms` was not
-     * explicitly restricted. Signing/verifying with an asymmetric key while leaving `algorithms` unset opens the
-     * door to algorithm-confusion attacks (e.g. an attacker forging an HS256 token using the public key as the
-     * HMAC secret). HMAC secrets (plain strings/buffers that aren't PEM-encoded) are unaffected.
+     * Returns `true` if `secret` is a form that is only ever usable as a genuine HMAC secret - a plain
+     * string/Buffer that isn't PEM-encoded, or a `KeyObject` of type `"secret"`. Anything else (a PEM
+     * string/Buffer, an asymmetric `KeyObject`, a `{ key, passphrase }` wrapper, a `GetPublicKeyOrSecret`
+     * callback, a JWK-shaped object, etc.) is *not* considered safe, since it may resolve to a non-secret
+     * (public) value that an attacker could use to forge an HS256/384/512 token.
+     */
+    private static isKnownSafeHmacSecret(secret: any): boolean {
+        const pemPattern = /-----BEGIN [A-Z ]*(PRIVATE|PUBLIC) KEY-----/;
+        if (typeof secret === "string") {
+            return !pemPattern.test(secret);
+        }
+        // `fs.readFileSync()` - the idiomatic way to load a key file - returns a Buffer, not a string, so both
+        // representations must be checked here.
+        if (Buffer.isBuffer(secret)) {
+            return !pemPattern.test(secret.toString("utf8"));
+        }
+        if (secret instanceof KeyObject) {
+            return secret.type === "secret";
+        }
+        return false;
+    }
+
+    /**
+     * Throws unless `config.secret` is a known-safe plain HMAC secret. Any other secret shape is treated
+     * conservatively as potentially asymmetric (fail closed, rather than only matching a fixed allowlist of
+     * asymmetric shapes seen so far) and requires `config.options.algorithms` to be explicitly set to a list
+     * that does not itself include an HMAC algorithm. Without this, signing/verifying with e.g. an RSA key
+     * while leaving `algorithms` unset - or restricting it to `["RS256", "HS256"]` - opens the door to
+     * algorithm-confusion attacks: an attacker holding only the public half of the key pair can forge a token
+     * by signing it with HS256 using that public value as the HMAC secret.
      *
      * @param config The JWT configuration to validate.
      */
     private static assertSafeAlgorithm(config: JWTUtilsConfig): void {
         const secret: any = config.secret;
-        const pemPattern = /-----BEGIN [A-Z ]*(PRIVATE|PUBLIC) KEY-----/;
-        // `fs.readFileSync()` - the idiomatic way to load a key file - returns a Buffer, not a string, so both
-        // representations must be checked or the guard below is trivially bypassed.
-        const isPemLike =
-            (typeof secret === "string" && pemPattern.test(secret)) ||
-            (Buffer.isBuffer(secret) && pemPattern.test(secret.toString("utf8")));
-        // `jwt.Secret` also allows a `KeyObject` (e.g. from `crypto.createPrivateKey()`) or a
-        // `{ key, passphrase }` encrypted-PEM wrapper, neither of which are strings/Buffers - both must be
-        // detected too or this guard is trivially bypassed by using either form.
-        const isAsymmetricKeyObject = secret instanceof KeyObject && secret.type !== "secret";
-        const isPassphraseWrappedKey =
-            !!secret && typeof secret === "object" && !Buffer.isBuffer(secret) && "key" in secret && "passphrase" in secret;
-        const looksAsymmetric = isPemLike || isAsymmetricKeyObject || isPassphraseWrappedKey;
-        if (looksAsymmetric && (!config.options?.algorithms || config.options.algorithms.length === 0)) {
+        if (JWTUtils.isKnownSafeHmacSecret(secret)) {
+            return;
+        }
+
+        const algorithms = config.options?.algorithms;
+        if (!algorithms || algorithms.length === 0) {
             throw new Error(
                 "config.secret appears to be an asymmetric key. config.options.algorithms must be explicitly set " +
                     "(e.g. ['RS256']) to prevent algorithm-confusion attacks.",
+            );
+        }
+        if (algorithms.some((alg) => JWTUtils.HMAC_ALGORITHMS.has(alg))) {
+            throw new Error(
+                "config.options.algorithms includes an HMAC algorithm (HS256/HS384/HS512) alongside a " +
+                    "non-HMAC secret. This would allow an attacker holding the public half of the key to forge " +
+                    "tokens via algorithm confusion. Remove HMAC algorithms from config.options.algorithms.",
             );
         }
     }
@@ -195,8 +221,10 @@ export class JWTUtils {
     }
 
     /**
-     * Generates a new JWT token for the given config and user object. The user object must be a valid RapidREST
-     * user.
+     * Synchronous counterpart to `deriveKey()`. **Blocks the event loop** for the duration of the scrypt
+     * derivation (deliberately CPU-expensive, typically tens of milliseconds) - `createTokenSync`/
+     * `decodeTokenSync` should therefore be avoided on a request-handling path when password-based payload
+     * encryption is configured; prefer `createToken`/`decodeToken` there.
      *
      * @param config The JWT configuration to use when generating the token.
      * @param user The user to encode into the token's payload.
@@ -228,14 +256,18 @@ export class JWTUtils {
     }
 
     /**
-     * Returns `true` if `algorithm` is an AEAD cipher (GCM/CCM/OCB/ChaCha20-Poly1305), which produces an
-     * authentication tag that must be captured on encryption and supplied back on decryption via
-     * `getAuthTag()`/`setAuthTag()`.
-     *
-     * @param algorithm The cipher algorithm name (e.g. `aes-256-gcm`).
+     * Returns the base64-encoded authentication tag for `cipher` if it's an AEAD cipher, otherwise `""`. Rather
+     * than pattern-matching the algorithm name (which only recognizes a fixed list of known AEAD naming
+     * conventions), this asks the cipher itself via `getAuthTag()`, which throws for any non-AEAD cipher - so
+     * any AEAD cipher/alias supported by the current Node/OpenSSL build is handled correctly, including ones
+     * not known when this was last updated.
      */
-    private static isAEADCipher(algorithm: string): boolean {
-        return /-(gcm|ccm|ocb)$/i.test(algorithm) || /chacha20-poly1305/i.test(algorithm);
+    private static getAuthTagIfAEAD(cipher: crypto.CipherCCM | crypto.CipherGCM | crypto.CipherOCB): string {
+        try {
+            return cipher.getAuthTag().toString("base64");
+        } catch {
+            return "";
+        }
     }
 
     /**
@@ -256,20 +288,28 @@ export class JWTUtils {
         return decrypted;
     }
 
-    public static async createToken(config: JWTUtilsConfig, user: JWTUser, data?: any): Promise<string> {
-        // Validate the required config options
+    /**
+     * Builds the signable payload shared by `createToken`/`createTokenSync`: validates `config`/`user`, spreads
+     * `data`, compresses the profile if requested, and - for public-key encryption only, which has no async
+     * dependency - encrypts it. Password-based encryption is left for the caller to finish via
+     * `finishPasswordEncryption()`, since deriving the key is the one step that differs between the sync and
+     * async entry points.
+     */
+    private static preparePayload(
+        config: JWTUtilsConfig,
+        user: JWTUser,
+        data?: any,
+    ): { payload: any; passwordOptions?: JWTUtilsPayloadPasswordOptions } {
         if (!config.secret) {
             throw new Error("Invalid configuration provided.");
         }
-
-        // Validate the user object
         if (!user || !user.uid) {
             throw new Error("Invalid or null user object provided.");
         }
 
         // `data` is spread before `profile` so that a `profile` key present in caller-supplied `data` can never
         // silently override the authoritative, server-derived user profile before signing.
-        let payload: any = { ...data, profile: JSON.stringify(user) };
+        const payload: any = { ...data, profile: JSON.stringify(user) };
 
         // Compress the profile if desired. Done *before* encryption so encryption (and, for RSA, its fixed
         // plaintext-size limit) operates on the smaller compressed representation rather than the raw JSON.
@@ -281,89 +321,145 @@ export class JWTUtils {
             }
         }
 
-        // Encrypt the profile if desired
+        let passwordOptions: JWTUtilsPayloadPasswordOptions | undefined;
         if (config.payload && config.payload.encrypt) {
             const payloadOptions: any = config.payload;
             if (payloadOptions.public_key) {
                 const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
                 payload.profile = JWTUtils.hybridEncrypt(keyOptions.public_key, payload.profile);
+                payload.encryption = true;
             } else {
-                const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
-                const iv: Buffer = Buffer.from(pwOtions.iv);
-                const salt = crypto.randomBytes(16);
-                const key: Buffer = await JWTUtils.deriveKey(pwOtions.password, salt);
-                const cipher = crypto.createCipheriv(pwOtions.algorithm, key, iv);
-
-                let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
-                encrypted += cipher.final("base64");
-                // AEAD ciphers (e.g. aes-256-gcm) require the auth tag to be captured here and verified on
-                // decrypt via setAuthTag(), otherwise decodeToken() throws "Unsupported state or unable to
-                // authenticate data" on every token.
-                const authTag: string = JWTUtils.isAEADCipher(pwOtions.algorithm)
-                    ? (cipher as crypto.CipherGCM).getAuthTag().toString("base64")
-                    : "";
-                payload.profile = salt.toString("base64") + ":" + authTag + ":" + encrypted;
+                passwordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
             }
-            payload.encryption = true;
+        }
+
+        return { payload, passwordOptions };
+    }
+
+    /** Finishes password-based payload encryption once `key` has been derived (sync or async). */
+    private static finishPasswordEncryption(
+        payload: any,
+        passwordOptions: JWTUtilsPayloadPasswordOptions,
+        key: Buffer,
+        salt: Buffer,
+    ): void {
+        const iv: Buffer = Buffer.from(passwordOptions.iv);
+        const cipher = crypto.createCipheriv(passwordOptions.algorithm, key, iv);
+
+        let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
+        encrypted += cipher.final("base64");
+        // AEAD ciphers (e.g. aes-256-gcm) require the auth tag to be captured here and verified on decrypt via
+        // setAuthTag(), otherwise decoding throws "Unsupported state or unable to authenticate data" on every
+        // token. `final()` must be called before `getAuthTag()` - the tag isn't available until encryption
+        // has finished.
+        const authTag: string = JWTUtils.getAuthTagIfAEAD(cipher as crypto.CipherGCM);
+        payload.profile = salt.toString("base64") + ":" + authTag + ":" + encrypted;
+        payload.encryption = true;
+    }
+
+    public static async createToken(config: JWTUtilsConfig, user: JWTUser, data?: any): Promise<string> {
+        const { payload, passwordOptions } = JWTUtils.preparePayload(config, user, data);
+        if (passwordOptions) {
+            const salt = crypto.randomBytes(16);
+            const key: Buffer = await JWTUtils.deriveKey(passwordOptions.password, salt);
+            JWTUtils.finishPasswordEncryption(payload, passwordOptions, key, salt);
         }
 
         JWTUtils.assertSafeAlgorithm(config);
         return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
     }
 
+    /**
+     * Synchronous counterpart to `createToken()`. **Blocks the event loop** while deriving the encryption key
+     * when password-based payload encryption is configured (see `deriveKeySync`) - prefer `createToken()` on a
+     * request-handling path in that case.
+     */
     public static createTokenSync(config: JWTUtilsConfig, user: JWTUser, data?: any): string {
-        // Validate the required config options
-        if (!config.secret) {
-            throw new Error("Invalid configuration provided.");
-        }
-
-        // Validate the user object
-        if (!user || !user.uid) {
-            throw new Error("Invalid or null user object provided.");
-        }
-
-        // `data` is spread before `profile` so that a `profile` key present in caller-supplied `data` can never
-        // silently override the authoritative, server-derived user profile before signing.
-        let payload: any = { ...data, profile: JSON.stringify(user) };
-
-        // Compress the profile if desired. Done *before* encryption so encryption (and, for RSA, its fixed
-        // plaintext-size limit) operates on the smaller compressed representation rather than the raw JSON.
-        if (config.payload && config.payload.compress) {
-            if (config.payload.compress === JWTUtilsCompressionMethods.ZLIB) {
-                const buf: Buffer = Buffer.from(payload.profile, "utf-8");
-                payload.profile = zlib.gzipSync(buf).toString("base64");
-                payload.compression = "zlib";
-            }
-        }
-
-        // Encrypt the profile if desired
-        if (config.payload && config.payload.encrypt) {
-            const payloadOptions: any = config.payload;
-            if (payloadOptions.public_key) {
-                const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                payload.profile = JWTUtils.hybridEncrypt(keyOptions.public_key, payload.profile);
-            } else {
-                const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
-                const iv: Buffer = Buffer.from(pwOtions.iv);
-                const salt = crypto.randomBytes(16);
-                const key: Buffer = JWTUtils.deriveKeySync(pwOtions.password, salt);
-                const cipher = crypto.createCipheriv(pwOtions.algorithm, key, iv);
-
-                let encrypted: string = cipher.update(payload.profile, "utf8", "base64");
-                encrypted += cipher.final("base64");
-                // AEAD ciphers (e.g. aes-256-gcm) require the auth tag to be captured here and verified on
-                // decrypt via setAuthTag(), otherwise decodeTokenSync() throws "Unsupported state or unable to
-                // authenticate data" on every token.
-                const authTag: string = JWTUtils.isAEADCipher(pwOtions.algorithm)
-                    ? (cipher as crypto.CipherGCM).getAuthTag().toString("base64")
-                    : "";
-                payload.profile = salt.toString("base64") + ":" + authTag + ":" + encrypted;
-            }
-            payload.encryption = true;
+        const { payload, passwordOptions } = JWTUtils.preparePayload(config, user, data);
+        if (passwordOptions) {
+            const salt = crypto.randomBytes(16);
+            const key: Buffer = JWTUtils.deriveKeySync(passwordOptions.password, salt);
+            JWTUtils.finishPasswordEncryption(payload, passwordOptions, key, salt);
         }
 
         JWTUtils.assertSafeAlgorithm(config);
         return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
+    }
+
+    /**
+     * Verifies `token` and prepares its payload for `decodeToken`/`decodeTokenSync`: validates the signature/
+     * shape, and - for private-key decryption only, which has no async dependency - decrypts it in place.
+     * Password-based decryption is left for the caller to finish via `finishPasswordDecryption()`, since
+     * deriving the key is the one step that differs between the sync and async entry points.
+     */
+    private static preDecode(
+        config: JWTUtilsConfig,
+        token: string,
+    ): {
+        payload: any;
+        passwordOptions?: JWTUtilsPayloadPasswordOptions;
+        salt?: Buffer;
+        authTagB64?: string;
+        encryptedProfile?: string;
+    } {
+        JWTUtils.assertSafeAlgorithm(config);
+        const payload: any = jwt.verify(token, config.secret, config.options);
+
+        if (!payload || !payload.profile) {
+            throw new Error("Token is invalid or missing data.");
+        }
+
+        let passwordOptions: JWTUtilsPayloadPasswordOptions | undefined;
+        let salt: Buffer | undefined;
+        let authTagB64: string | undefined;
+        let encryptedProfile: string | undefined;
+
+        // Decrypt the payload if desired. Must happen before decompression since compression is applied *before*
+        // encryption when the token is created, so decryption must be undone first.
+        if (payload.encryption && config.payload && config.payload.encrypt) {
+            const payloadOptions: any = config.payload;
+            if (payloadOptions.private_key) {
+                const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
+                payload.profile = JWTUtils.hybridDecrypt(keyOptions.private_key, payload.profile);
+            } else {
+                passwordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
+                const [saltB64, tagB64, profile] = payload.profile.split(":");
+                salt = Buffer.from(saltB64, "base64");
+                authTagB64 = tagB64;
+                encryptedProfile = profile;
+            }
+        }
+
+        return { payload, passwordOptions, salt, authTagB64, encryptedProfile };
+    }
+
+    /** Finishes password-based payload decryption once `key` has been derived (sync or async). */
+    private static finishPasswordDecryption(
+        payload: any,
+        passwordOptions: JWTUtilsPayloadPasswordOptions,
+        key: Buffer,
+        encryptedProfile: string,
+        authTagB64: string | undefined,
+    ): void {
+        const iv: Buffer = Buffer.from(passwordOptions.iv);
+        const decipher = crypto.createDecipheriv(passwordOptions.algorithm, key, iv);
+        if (authTagB64) {
+            (decipher as crypto.DecipherGCM).setAuthTag(Buffer.from(authTagB64, "base64"));
+        }
+
+        let decrypted: string = decipher.update(encryptedProfile, "base64", "utf8");
+        decrypted += decipher.final("utf8");
+        payload.profile = decrypted;
+    }
+
+    /** Decompresses (if applicable) and parses the final payload profile shared by both decode entry points. */
+    private static finalizePayload(payload: any): JWTPayload {
+        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
+            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
+            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
+        }
+        payload.profile = JSON.parse(payload.profile);
+        return payload;
     }
 
     /**
@@ -375,102 +471,29 @@ export class JWTUtils {
      * @returns The data encoded in the token's payload.
      */
     public static async decodeToken(config: JWTUtilsConfig, token: string): Promise<JWTPayload> {
-        JWTUtils.assertSafeAlgorithm(config);
-        // Decode the token
-        let payload: any = jwt.verify(token, config.secret, config.options);
-
-        // Validate the payload
-        if (!payload || !payload.profile) {
-            throw new Error("Token is invalid or missing data.");
+        const { payload, passwordOptions, salt, authTagB64, encryptedProfile } = JWTUtils.preDecode(config, token);
+        if (passwordOptions && salt && encryptedProfile !== undefined) {
+            const key: Buffer = await JWTUtils.deriveKey(passwordOptions.password, salt);
+            JWTUtils.finishPasswordDecryption(payload, passwordOptions, key, encryptedProfile, authTagB64);
         }
-
-        // Decrypt the payload if desired. Must happen before decompression since compression is applied *before*
-        // encryption when the token is created (see createToken), so decryption must be undone first.
-        if (payload.encryption && config.payload && config.payload.encrypt) {
-            const payloadOptions: any = config.payload;
-            if (payloadOptions.private_key) {
-                const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                payload.profile = JWTUtils.hybridDecrypt(keyOptions.private_key, payload.profile);
-            } else {
-                const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
-                const iv: Buffer = Buffer.from(pwOtions.iv);
-                const [saltB64, authTagB64, profile] = payload.profile.split(":");
-                const salt = Buffer.from(saltB64, "base64");
-                const key: Buffer = await JWTUtils.deriveKey(pwOtions.password, salt);
-                const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
-                if (authTagB64) {
-                    (decipher as crypto.DecipherGCM).setAuthTag(Buffer.from(authTagB64, "base64"));
-                }
-
-                let decrypted: string = decipher.update(profile, "base64", "utf8");
-                decrypted += decipher.final("utf8");
-                payload.profile = decrypted;
-            }
-        }
-
-        // Decompress the payload if desired
-        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
-            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
-            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
-        }
-
-        // Make sure the profile is an parsed
-        payload.profile = JSON.parse(payload.profile);
-
-        return payload;
+        return JWTUtils.finalizePayload(payload);
     }
 
     /**
-     * Decodes the given JWT authentication token using the provided configuration. If the token is not valid an
-     * error is thrown with the reason. Returns the encoded user object payload upon success.
+     * Synchronous counterpart to `decodeToken()`. **Blocks the event loop** while deriving the decryption key
+     * when password-based payload encryption is configured (see `deriveKeySync`) - prefer `decodeToken()` on a
+     * request-handling path in that case.
      *
      * @param config The JWT configuration to use when validating the token.
      * @param token The JWT token to validate.
      * @returns The data encoded in the token's payload.
      */
     public static decodeTokenSync(config: JWTUtilsConfig, token: string): JWTPayload {
-        JWTUtils.assertSafeAlgorithm(config);
-        // Decode the token
-        let payload: any = jwt.verify(token, config.secret, config.options);
-
-        // Validate the payload
-        if (!payload || !payload.profile) {
-            throw new Error("Token is invalid or missing data.");
+        const { payload, passwordOptions, salt, authTagB64, encryptedProfile } = JWTUtils.preDecode(config, token);
+        if (passwordOptions && salt && encryptedProfile !== undefined) {
+            const key: Buffer = JWTUtils.deriveKeySync(passwordOptions.password, salt);
+            JWTUtils.finishPasswordDecryption(payload, passwordOptions, key, encryptedProfile, authTagB64);
         }
-
-        // Decrypt the payload if desired. Must happen before decompression since compression is applied *before*
-        // encryption when the token is created (see createTokenSync), so decryption must be undone first.
-        if (payload.encryption && config.payload && config.payload.encrypt) {
-            const payloadOptions: any = config.payload;
-            if (payloadOptions.private_key) {
-                const keyOptions: JWTUtilsPayloadKeyOptions = payloadOptions as JWTUtilsPayloadKeyOptions;
-                payload.profile = JWTUtils.hybridDecrypt(keyOptions.private_key, payload.profile);
-            } else {
-                const pwOtions: JWTUtilsPayloadPasswordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
-                const iv: Buffer = Buffer.from(pwOtions.iv);
-                const [saltB64, authTagB64, profile] = payload.profile.split(":");
-                const salt = Buffer.from(saltB64, "base64");
-                const key: Buffer = JWTUtils.deriveKeySync(pwOtions.password, salt);
-                const decipher = crypto.createDecipheriv(pwOtions.algorithm, key, iv);
-                if (authTagB64) {
-                    (decipher as crypto.DecipherGCM).setAuthTag(Buffer.from(authTagB64, "base64"));
-                }
-
-                let decrypted: string = decipher.update(profile, "base64", "utf8");
-                decrypted += decipher.final("utf8");
-                payload.profile = decrypted;
-            }
-        }
-
-        // Decompress the payload if desired
-        if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
-            const buf: Buffer = Buffer.from(payload.profile as string, "base64");
-            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
-        }
-
-        // Make sure the profile is an parsed
-        payload.profile = JSON.parse(payload.profile);
-
-        return payload;
+        return JWTUtils.finalizePayload(payload);
     }
 }

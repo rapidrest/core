@@ -52,10 +52,10 @@ export class ValidationUtils {
     }
 
     /**
-     * Validates that the provided array is not empty.
+     * Validates that the provided array is not empty (nor `null`/`undefined`).
      */
     public static checkEmpty(val: Array<any>): Array<any> {
-        if (val && val.length === 0) {
+        if (!val || val.length === 0) {
             throw new Error("Value cannot be empty.");
         }
         return val;
@@ -147,7 +147,15 @@ export class ValidationUtils {
      * Validates that the provided value is an entity `version` number (e.g. `value > 0`).
      */
     public static checkVersion(val: any): number {
-        const num: number = Number(val);
+        // `Number()` coerces several "empty" inputs - `null`, `""`/whitespace-only strings, `[]` - to `0`
+        // rather than `NaN`, which would otherwise let missing/malformed input silently through as if it were
+        // a legitimate version `0` instead of being rejected below. `undefined` needs no such guard since
+        // `Number(undefined)` already evaluates to `NaN`.
+        const isEmpty =
+            val === null ||
+            (typeof val === "string" && val.trim() === "") ||
+            (Array.isArray(val) && val.length === 0);
+        const num: number = isEmpty ? NaN : Number(val);
         if (isNaN(num)) {
             throw new Error("Value is not a valid version number.");
         }

@@ -2,6 +2,7 @@
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import fs from "fs";
+import path from "path";
 import { OASUtils } from "../src/OASUtils.js";
 import nock from "nock";
 import * as rimraf from "rimraf";
@@ -753,6 +754,34 @@ describe("OASUtils Tests", () => {
             await expect(
                 OASUtils.loadSpec("./test-openapi/openapi.json", { allowedHosts: ["localhost"] }),
             ).rejects.toThrow("is not within an allowed directory");
+        });
+
+        it("throws when the file is reached via a symlink that escapes the allowed directory.", async () => {
+            // A directory "junction" is used (rather than a file symlink) because it's the only symlink type
+            // Windows lets an unprivileged process create; the `type` argument is ignored on POSIX, so this
+            // still produces an ordinary symlink there. See ClassLoader.test.ts for the same pattern.
+            const outsideDir = path.resolve("./test-openapi-outside");
+            await mkdirp(outsideDir);
+            fs.writeFileSync(path.join(outsideDir, "secret.json"), JSON.stringify({ openapi: "3.0.1", secret: true }));
+            const linkPath = "./test-openapi/escape-link";
+            fs.symlinkSync(outsideDir, linkPath, "junction");
+            try {
+                await expect(
+                    OASUtils.loadSpec(`${linkPath}/secret.json`, { allowedDirs: ["./test-openapi"] }),
+                ).rejects.toThrow("is not within an allowed directory");
+            } finally {
+                fs.rmSync(linkPath, { recursive: true, force: true });
+                rimraf.sync(outsideDir);
+            }
+        });
+
+        it("does not follow a redirect to a disallowed host when allowedHosts is enforced.", async () => {
+            nock("https://localhost:3000")
+                .get("/openapi-redirect.yaml")
+                .reply(302, undefined, { Location: "https://evil.example.com/openapi.yaml" });
+            await expect(
+                OASUtils.loadSpec("https://localhost:3000/openapi-redirect.yaml", { allowedHosts: ["localhost"] }),
+            ).rejects.toThrow();
         });
 
         it("re-validates on every call instead of letting a cached entry bypass a later restriction.", async () => {

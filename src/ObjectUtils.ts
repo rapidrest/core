@@ -101,7 +101,10 @@ export class ObjectUtils {
                     metadataObj,
                     member,
                 );
-                if (validator && obj[member]) {
+                // Matches the nullable convention just above (null/undefined/"" are "absent", everything else -
+                // including `0`/`false` - is a real value to validate) rather than gating on plain truthiness,
+                // which would silently skip validation for any property whose legitimate value is falsy.
+                if (validator && obj[member] !== null && obj[member] !== undefined && obj[member] !== "") {
                     try {
                         obj[member] = validator(obj[member]);
                     } catch (err: any) {

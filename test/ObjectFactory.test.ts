@@ -544,6 +544,24 @@ describe("ObjectFactory Tests", () => {
         expect(results).toContain(obj.someMethod);
     });
 
+    it("getInitMethods does not report the same @Init method twice when it's visible via both the own-property and prototype-chain scans.", () => {
+        class DedupInitClass {
+            @Init
+            private init(): void {
+                // no-op
+            }
+        }
+        const instance: any = new DedupInitClass();
+        // Shadow the prototype method with an own enumerable property of the same name (and metadata) so the
+        // own-property scan finds "init" first; the class's own @Init metadata on the prototype would otherwise
+        // cause the prototype-chain scan to report it again.
+        Reflect.defineMetadata("rrst:initialize", true, instance, "init");
+        instance.init = instance.init.bind(instance);
+
+        const results = factory.getInitMethods(instance);
+        expect(results.filter((fn) => fn === instance.init)).toHaveLength(1);
+    });
+
     it("newInstance with initialize:false skips @Config/@Inject/@Init processing.", () => {
         const instance: any = factory.newInstance(TestClassC, { name: "noInit", initialize: false });
         expect(instance instanceof Promise).toBe(false);
@@ -564,6 +582,11 @@ describe("ObjectFactory Tests", () => {
 
     it("newInstance throws when given an empty string type.", () => {
         expect(() => factory.newInstance("")).toThrow("No valid type was specified.");
+    });
+
+    it("newInstance throws when given a null/undefined type.", () => {
+        expect(() => factory.newInstance(null)).toThrow("No valid type was specified.");
+        expect(() => factory.newInstance(undefined)).toThrow("No valid type was specified.");
     });
 
     it("newInstance throws when no class is registered for the given name.", () => {
@@ -587,5 +610,63 @@ describe("ObjectFactory Tests", () => {
 
     it("getInstance throws when given an empty string.", () => {
         expect(() => factory.getInstance("")).toThrow("No valid nameOrType was specified.");
+    });
+
+    it("destroy() uses the internal _name for cleanup even when the instance has its own business 'name' field.", async () => {
+        class NamedEntity {
+            public name = "Acme Corp";
+        }
+        const localFactory = new ObjectFactory(config, Logger());
+        localFactory.register(NamedEntity);
+        const instance: any = await localFactory.newInstance(NamedEntity, { name: "primary" });
+        expect(instance._name).toBe("NamedEntity:primary");
+
+        await localFactory.destroy(instance);
+
+        // Must be removed under its real registry key, not under its business "name" value.
+        expect(localFactory.instances.has("NamedEntity:primary")).toBe(false);
+        expect(localFactory.instances.has("Acme Corp")).toBe(false);
+        localFactory.clear();
+    });
+
+    it("newInstance does not skip the namespace prefix just because the name contains the class name as a substring.", async () => {
+        const instance: any = await factory.newInstance(TestClassA, { name: "TestClassAPrimary" });
+        expect(instance._name).toBe("TestClassA:TestClassAPrimary");
+    });
+
+    it("getInstance honors a custom .fqn the same way newInstance/register do.", async () => {
+        class CustomFqnClass {}
+        (CustomFqnClass as any).fqn = "custom.CustomFqnClass";
+        const localFactory = new ObjectFactory(config, Logger());
+        localFactory.register(CustomFqnClass);
+        const instance: any = await localFactory.newInstance(CustomFqnClass, { name: "default" });
+        expect(instance).toBeDefined();
+
+        // Before the fix, getInstance ignored `.fqn` and searched for "CustomFqnClass:default" instead of
+        // "custom.CustomFqnClass:default", so this would return undefined despite a live instance existing.
+        const found: any = localFactory.getInstance(CustomFqnClass);
+        expect(found).toBe(instance);
+        localFactory.clear();
+    });
+
+    it("@Inject's implicit default name reuses an existing instance of the class instead of creating a disconnected duplicate.", async () => {
+        class Dependency {
+            public marker = Math.random();
+        }
+        class Consumer {
+            @Inject(Dependency)
+            public dep?: Dependency;
+        }
+        const localFactory = new ObjectFactory(config, Logger());
+        localFactory.register(Dependency);
+        localFactory.register(Consumer);
+
+        // Create the dependency first under a name other than "default" - simulating an app that bootstraps a
+        // shared singleton before any class that @Injects it is instantiated.
+        const dep: any = await localFactory.newInstance(Dependency, { name: "shared" });
+
+        const consumer: any = await localFactory.newInstance(Consumer, { name: "default" });
+        expect(consumer.dep).toBe(dep);
+        localFactory.clear();
     });
 });

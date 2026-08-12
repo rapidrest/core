@@ -131,6 +131,13 @@ export class AlertUtils {
         this.serviceUrl = options.serviceUrl;
     }
 
+    /** Returns `true` if `status` is a 2XX HTTP success code. Shared by every method below that inspects a
+     * response's status, so a future change to what counts as "success" (e.g. also accepting 304) only needs
+     * to be made in one place. */
+    private static isSuccess(status: number): boolean {
+        return status >= 200 && status < 300;
+    }
+
     /**
      * Attempts to close the existing alert with the given identifier.
      * @param id The unique identifier of the alert to close.
@@ -151,7 +158,7 @@ export class AlertUtils {
                     Authorization: this.auth,
                 }
             });
-            return response.status >= 200 && response.status < 300;
+            return AlertUtils.isSuccess(response.status);
         } catch (err: any) {
             this.logger?.error("Failed to close alert with id " + id);
             this.logger?.error(err.message);
@@ -174,9 +181,7 @@ export class AlertUtils {
             });
             // axios's default validateStatus already rejects (throws) any non-2xx response before we get here, so
             // the alternate branch below is unreachable under normal operation; kept as defense in depth.
-            return response.status >= 200 && response.status < 300
-                ? response.data
-                : /* v8 ignore next */ null;
+            return AlertUtils.isSuccess(response.status) ? response.data : /* v8 ignore next */ null;
         } catch (err: any) {
             this.logger?.error("Failed to retrieve alert with id " + id);
             this.logger?.error(err.message);
@@ -194,7 +199,20 @@ export class AlertUtils {
      */
     public async send(alert: Alert, vars: any = {}, attachments?: AlertUtilsAttachmentOptions): Promise<string | null> {
         try {
-            // Truncate the various properties to the maximimum allowed by the most restrictive known API (e.g. OpsGenie)
+            // Perform variable substitution on the alert's text fields *before* truncating them below. Note:
+            // these fields are treated as plain data, never as a template to compile/execute, since
+            // `description`/`message`/`note` frequently originate from untrusted event or exception text and
+            // must not be interpretable as code.
+            alert.description = StringUtils.findAndReplace(alert.description, vars);
+            alert.message = StringUtils.findAndReplace(alert.message, vars);
+            if (alert.note) {
+                alert.note = StringUtils.findAndReplace(alert.note, vars);
+            }
+
+            // Truncate the various properties to the maximimum allowed by the most restrictive known API (e.g.
+            // OpsGenie). Done *after* substitution above - substituting into an already-truncated string could
+            // expand a short placeholder (e.g. a long exception message) past the API's limit, defeating the
+            // truncation this is meant to guarantee.
             alert.alias = alert.alias.substring(0, MAX_CHARS_ALIAS);
             alert.description = alert.description.substring(0, MAX_CHARS_DESCRIPTION);
             if (alert.entity) {
@@ -214,15 +232,6 @@ export class AlertUtils {
                 alert.tags = tags;
             }
 
-            // Perform variable substitution on the alert's text fields. Note: these fields are treated as plain
-            // data, never as a template to compile/execute, since `description`/`message`/`note` frequently
-            // originate from untrusted event or exception text and must not be interpretable as code.
-            alert.description = StringUtils.findAndReplace(alert.description, vars);
-            alert.message = StringUtils.findAndReplace(alert.message, vars);
-            if (alert.note) {
-                alert.note = StringUtils.findAndReplace(alert.note, vars);
-            }
-
             let response: AxiosResponse = await axios.post(this.serviceUrl, alert, {
                 headers: {
                     Authorization: this.auth,
@@ -230,7 +239,7 @@ export class AlertUtils {
             });
             // axios's default validateStatus already rejects (throws) any non-2xx response before we get here, so
             // the alternate branch below is unreachable under normal operation; kept as defense in depth.
-            const requestId: string | null = response.status >= 200 && response.status < 300
+            const requestId: string | null = AlertUtils.isSuccess(response.status)
                 ? response.data.requestId
                 : /* v8 ignore next */ null;
             if (!requestId) {
@@ -280,10 +289,12 @@ export class AlertUtils {
                         size: data.length
                     }, attachments.indexFile);
                 } else {
-                    // Upload each attachment individually
-                    for (const file of attachments.files) {
-                        await this.addAttachment(id, file, attachments.indexFile);
-                    }
+                    // Upload each attachment individually and concurrently - they're independent uploads to
+                    // different destinations, so there's no need to serialize them and pay N round-trips of
+                    // latency on this alerting path where fast delivery matters most.
+                    await Promise.all(
+                        attachments.files.map((file) => this.addAttachment(id, file, attachments.indexFile)),
+                    );
                 }
             }
 
@@ -322,7 +333,7 @@ export class AlertUtils {
                 }
             });
 
-            return response.status >= 200 && response.status < 300;
+            return AlertUtils.isSuccess(response.status);
         } catch (err: any) {
             // Don't fail the rest of the request if attachments fail
             this.logger?.error(`Failed to upload attachment ${attachment.filename} to alert ${id}.`);

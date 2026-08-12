@@ -113,7 +113,13 @@ export class ThreadPool {
         this.workers = new Array();
     }
 
-    private createWorker(idx: number, options: WorkerOptions): Worker {
+    /**
+     * @param onRestart Invoked with the replacement `Worker` whenever `restartOnExit` recreates the worker for
+     * `idx`. Lets `start()` re-attach its readiness-tracking listeners to the replacement - without this, a
+     * worker that crashes and is restarted before ever reporting ready would leave `start()`'s returned promise
+     * hanging forever, since nothing would be listening for the *replacement's* readiness signal.
+     */
+    private createWorker(idx: number, options: WorkerOptions, onRestart?: (newWorker: Worker) => void): Worker {
         if (!options.entry || !!options.worker) {
             options.entry = path.join(_dirname, "ThreadWorkerEntry.js");
         }
@@ -124,6 +130,20 @@ export class ThreadPool {
         this.logger?.debug(`Creating thread worker: ${JSON.stringify(options)}`);
         const worker: Worker = new Worker(options.entry, workerOptions);
 
+        // Dispatches registered "online" callbacks for entry-mode pools, which have no other way to signal
+        // readiness at the application level. Guarded to worker-mode's exclusion (`!options.worker`) so a
+        // worker-mode pool - which reports readiness via the WorkerMessageType.ONLINE message handled below -
+        // doesn't fire "online" callbacks twice for the same worker.
+        worker.on("online", () => {
+            if (options && !options.worker) {
+                const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("online");
+                if (listeners) {
+                    for (const callback of listeners) {
+                        callback(idx);
+                    }
+                }
+            }
+        });
         worker.on("error", (error) => {
             const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("error");
             if (listeners) {
@@ -148,8 +168,9 @@ export class ThreadPool {
             // Restart worker thread
             if (options?.restartOnExit && !this.shutdown) {
                 worker.removeAllListeners();
-                const newWorker: Worker = this.createWorker(idx, options);
+                const newWorker: Worker = this.createWorker(idx, options, onRestart);
                 this.workers[idx] = newWorker;
+                onRestart?.(newWorker);
             }
         });
         worker.on("message", (msg: WorkerMessage) => {
@@ -239,10 +260,14 @@ export class ThreadPool {
                 reject(error);
             };
 
-            for (let i = 0; i < target; i++) {
-                const worker: Worker = this.createWorker(i, options);
+            // Attaches the readiness-tracking listeners used to resolve/reject this start() call to `w`. Defined
+            // once per slot and re-invoked (via createWorker's `onRestart` hook below) on any replacement worker
+            // created by `restartOnExit` before this promise settles, so a worker that crashes and restarts
+            // during startup - before ever reporting ready - still lets start() resolve once the *replacement*
+            // becomes ready, instead of hanging forever with no listener tracking it.
+            const attachReadyListeners = (w: Worker): void => {
                 let ready = false;
-                worker.on("online", () => {
+                w.on("online", () => {
                     if (settled) {
                         return;
                     }
@@ -259,12 +284,12 @@ export class ThreadPool {
                 });
                 // If a worker fails to start before it ever reaches readiness, reject instead of leaving the
                 // returned promise hanging forever.
-                worker.on("error", (error) => {
+                w.on("error", (error) => {
                     if (!ready) {
                         failStartup(error);
                     }
                 });
-                worker.on("message", (msg: any) => {
+                w.on("message", (msg: any) => {
                     if (settled) {
                         return;
                     }
@@ -284,6 +309,15 @@ export class ThreadPool {
                         resolve();
                     }
                 });
+            };
+
+            for (let i = 0; i < target; i++) {
+                const worker: Worker = this.createWorker(i, options, (newWorker) => {
+                    if (!settled) {
+                        attachReadyListeners(newWorker);
+                    }
+                });
+                attachReadyListeners(worker);
                 this.workers[i] = worker;
             }
             this.logger?.debug(`Created ${this.workers.length} worker(s)`);

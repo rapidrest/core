@@ -37,12 +37,10 @@ export class UserUtils {
      * @param organizationUids The list of universally unique identifiers to search for.
      */
     public static hasOrganizations(user: any, organizationUids?: string[]): boolean {
-        if (user && user.orgs && Array.isArray(user.orgs) && Array.isArray(organizationUids)) {
+        if (user && Array.isArray(organizationUids)) {
             for (const organizationUid of organizationUids) {
-                for (const uid of user.orgs) {
-                    if (uid === organizationUid) {
-                        return true;
-                    }
+                if (UserUtils.hasOrganization(user, organizationUid)) {
+                    return true;
                 }
             }
         }

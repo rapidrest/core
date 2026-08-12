@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2026 Jean-Philippe Steinmetz. All rights reserved.
 ///////////////////////////////////////////////////////////////////////////////
+import { CacheUtils } from "./CacheUtils.js";
 import { Destroy } from "./decorators/ObjectDecorators.js";
 
 /** How often the sweep interval reclaims expired, never-reloaded sessions. */
@@ -58,12 +59,8 @@ export class MemoryStore {
         if (!this.entries.has(id) && this.entries.size >= this.maxSize) {
             // Reclaim space by sweeping expired entries first, then evicting the oldest surviving entries
             this.sweep();
-            while (this.entries.size >= this.maxSize) {
-                const oldestId: string | undefined = this.entries.keys().next().value;
-                if (oldestId === undefined) {
-                    break;
-                }
-                this.entries.delete(oldestId);
+            while (this.entries.size >= this.maxSize && this.entries.size > 0) {
+                CacheUtils.evictOldest(this.entries);
             }
         }
         this.entries.set(id, { data, expiresAt: Date.now() + ttlSeconds * 1000 });

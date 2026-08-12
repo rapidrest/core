@@ -332,6 +332,43 @@ describe("JWTUtils Tests.", () => {
         expect(token).toBeDefined();
     });
 
+    it("Rejects an asymmetric secret whose algorithms list still permits an HMAC algorithm (algorithm confusion).", async () => {
+        // A public/private RSA key with `algorithms: ["RS256", "HS256"]` is a classic algorithm-confusion trap:
+        // an attacker holding only the public key could forge a token by signing it with HS256 using the
+        // public PEM as the HMAC secret. Restricting `algorithms` at all is not sufficient - it must also
+        // exclude HMAC algorithms.
+        const confusableConfig = { secret: rsaPublicKey, options: { algorithms: ["RS256", "HS256"] as any } };
+        await expect(JWTUtils.decodeToken(confusableConfig, "not-a-real-token")).rejects.toThrow(
+            "includes an HMAC algorithm",
+        );
+        expect(() => JWTUtils.decodeTokenSync(confusableConfig, "not-a-real-token")).toThrow(
+            "includes an HMAC algorithm",
+        );
+    });
+
+    it("Allows an asymmetric secret whose algorithms list correctly excludes HMAC algorithms.", async () => {
+        // jsonwebtoken's `sign()` rejects the plural `algorithms` key outright (it's a `verify()`-only option),
+        // so a token signed with an asymmetric key is produced directly here rather than via
+        // JWTUtils.createToken(); this test's focus is JWTUtils.decodeToken()'s assertSafeAlgorithm() call
+        // correctly allowing a safe (non-HMAC) `algorithms` restriction through instead of throwing.
+        const token = jwt.sign({ profile: JSON.stringify(testUser), sessionUid: "s1" }, rsaPrivateKey, {
+            algorithm: "RS256",
+        });
+        const decodeConfig = { secret: rsaPublicKey, options: { algorithms: ["RS256"] as any } };
+        const payload = await JWTUtils.decodeToken(decodeConfig, token);
+        expect(payload.profile).toEqual(testUser);
+    });
+
+    it("Rejects an unrecognized secret shape (e.g. a GetPublicKeyOrSecret callback) without restricted algorithms.", async () => {
+        // A callback-style secret can resolve to anything, including a public key - it must be treated as
+        // conservatively unsafe rather than silently allowed through just because it isn't a recognized
+        // asymmetric shape.
+        const callbackConfig = { secret: ((_header: any, cb: any) => cb(null, "irrelevant")) as any };
+        await expect(JWTUtils.createToken(callbackConfig, testUser)).rejects.toThrow(
+            "config.secret appears to be an asymmetric key.",
+        );
+    });
+
     it("Ignores an unrecognized compression method.", async () => {
         const bogusCompressConfig = {
             secret: "MyPasswordIsSecure",

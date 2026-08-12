@@ -27,6 +27,11 @@ describe("ValidationUtils Tests.", () => {
         expect(() => ValidationUtils.checkEmpty([])).toThrow("Value cannot be empty.");
     });
 
+    it("checkEmpty throws for null/undefined instead of silently returning them.", () => {
+        expect(() => ValidationUtils.checkEmpty(null as any)).toThrow("Value cannot be empty.");
+        expect(() => ValidationUtils.checkEmpty(undefined as any)).toThrow("Value cannot be empty.");
+    });
+
     it("checkIP succeeds and fails.", () => {
         expect(ValidationUtils.checkIP("127.0.0.1")).toBe("127.0.0.1");
         expect(() => ValidationUtils.checkIP("not-an-ip")).toThrow("Value is not a valid IP address.");
@@ -85,5 +90,16 @@ describe("ValidationUtils Tests.", () => {
 
     it("checkVersion throws for non-numeric input instead of silently returning NaN.", () => {
         expect(() => ValidationUtils.checkVersion("not-a-number")).toThrow("Value is not a valid version number.");
+    });
+
+    it("checkVersion throws for empty/whitespace/null/empty-array input instead of silently coercing to 0.", () => {
+        // `Number()` coerces each of these to `0` rather than `NaN`, which would otherwise let missing or
+        // malformed input silently through as a "valid" version 0.
+        expect(() => ValidationUtils.checkVersion("")).toThrow("Value is not a valid version number.");
+        expect(() => ValidationUtils.checkVersion("   ")).toThrow("Value is not a valid version number.");
+        expect(() => ValidationUtils.checkVersion(null)).toThrow("Value is not a valid version number.");
+        expect(() => ValidationUtils.checkVersion([])).toThrow("Value is not a valid version number.");
+        // `undefined` already throws via the existing NaN check (`Number(undefined)` is `NaN`).
+        expect(() => ValidationUtils.checkVersion(undefined)).toThrow("Value is not a valid version number.");
     });
 });

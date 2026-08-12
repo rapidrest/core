@@ -14,20 +14,45 @@ const logger = Logger();
  */
  export class FileUtils {
     /**
-     * Throws an error if the resolved `target` path is not contained within the resolved `rootDir` directory. Used
-     * to prevent path traversal (e.g. `../`) from escaping an intended root when a caller opts in by providing
-     * `rootDir`.
+     * Throws an error if `target` is not contained within `rootDir`. Used to prevent path traversal (e.g. `../`)
+     * from escaping an intended root when a caller opts in by providing `rootDir`.
      *
-     * @param {string} rootDir The directory that `target` must be contained within.
-     * @param {string} target The fully resolved path to verify.
+     * Both `rootDir` and the longest already-existing ancestor of `target` are resolved via `fs.realpathSync`
+     * before the containment check, not just `path.resolve`. Without this, a symlink placed anywhere on disk
+     * within `target`'s existing ancestry (including `target` itself) that points outside `rootDir` would pass
+     * a purely lexical check, yet `fs.existsSync`/`fs.writeFileSync`/`fs.readFileSync` etc. would transparently
+     * follow it - defeating the containment guarantee entirely. Any remaining (not-yet-existing) trailing path
+     * segments can't be symlinks yet, so they're safely appended as literal strings.
+     *
+     * @param {string} rootDir The directory that `target` must be contained within. Must exist.
+     * @param {string} target The path to verify.
+     * @returns The fully resolved (existing-portion realpath'd) path. Callers should use this value - not the
+     * original `target` - for the actual filesystem operation, so a symlink swapped in after this check can't
+     * reintroduce the gap it closes.
      */
-    private static assertContained(rootDir: string, target: string): void {
-        const rootResolved = path.resolve(rootDir);
-        const targetResolved = path.resolve(target);
-        const rel = path.relative(rootResolved, targetResolved);
-        if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
-            throw new Error(`Path "${target}" escapes the allowed root directory "${rootResolved}".`);
+    public static assertContained(rootDir: string, target: string): string {
+        const rootReal = fs.realpathSync(path.resolve(rootDir));
+
+        let existingPart = path.resolve(target);
+        const remainder: string[] = [];
+        while (!fs.existsSync(existingPart)) {
+            const parent = path.dirname(existingPart);
+            // `path.dirname()` of a filesystem root returns that same root, which is the only way this loop
+            // could otherwise become infinite. Not practically reachable in a real filesystem (the root itself
+            // always exists), so this is defense-in-depth rather than an expected/tested case.
+            /* v8 ignore next */
+            if (parent === existingPart) break;
+            remainder.unshift(path.basename(existingPart));
+            existingPart = parent;
         }
+        const existingReal = fs.realpathSync(existingPart);
+        const targetReal = remainder.length > 0 ? path.join(existingReal, ...remainder) : existingReal;
+
+        const rel = path.relative(rootReal, targetReal);
+        if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
+            throw new Error(`Path "${target}" escapes the allowed root directory "${rootReal}".`);
+        }
+        return targetReal;
     }
 
     /**
@@ -54,26 +79,28 @@ const logger = Logger();
 
         if (rootDir) {
             FileUtils.assertContained(rootDir, srcPathFull);
-            FileUtils.assertContained(rootDir, outPathFull);
+            outPathFull = FileUtils.assertContained(rootDir, outPathFull);
         }
 
-        let fileExists = fs.existsSync(outPathFull);
-
         // Make sure the path leading to the final destination exists
-        let outDirPath = path.dirname(outPath);
+        let outDirPath = path.dirname(outPathFull);
         if (!fs.existsSync(outDirPath)) {
             await mkdirp(outDirPath);
         }
 
-        if (fileExists && !overwrite) {
-            throw new Error(
-                `File already exists at "${outPathFull}". Pass overwrite=true to replace it.`
-            );
-        }
-
-        // Write the final output to disk
+        // Write the final output to disk. When `overwrite` is `false`, the exclusive `"wx"` flag makes the
+        // existence check and the write atomic - `fs.existsSync()` followed by a plain write would otherwise
+        // leave a window where two concurrent calls both see no existing file and one silently clobbers the
+        // other's output.
         logger.info("Writing: " + outPathFull);
-        fs.writeFileSync(outPathFull, contents);
+        try {
+            fs.writeFileSync(outPathFull, contents, overwrite ? undefined : { flag: "wx" });
+        } catch (err: any) {
+            if (!overwrite && err?.code === "EEXIST") {
+                throw new Error(`File already exists at "${outPathFull}". Pass overwrite=true to replace it.`);
+            }
+            throw err;
+        }
     }
 
     /**
@@ -94,14 +121,16 @@ const logger = Logger();
         overwrite: boolean = false,
         rootDir?: string
     ): Promise<void> {
-        let srcPathFull: any = path.resolve(srcPath);
-
-        if (rootDir) {
-            FileUtils.assertContained(rootDir, srcPathFull);
-        }
+        let srcPathFull: string = path.resolve(srcPath);
 
         if (!fs.existsSync(srcPathFull)) {
             throw new Error("File does not exist: " + srcPathFull);
+        }
+
+        if (rootDir) {
+            // Re-resolved via the realpath'd return value so the subsequent read follows the *validated* path
+            // rather than the original (potentially symlinked) one.
+            srcPathFull = FileUtils.assertContained(rootDir, srcPathFull);
         }
 
         let template = fs.readFileSync(srcPathFull, "utf-8");
@@ -121,7 +150,7 @@ const logger = Logger();
      * within this directory, otherwise an error is thrown.
      * @param {boolean} overwrite Set to `true` to overwrite an existing file at the destination. Default is `false`,
      * matching the behavior of `writeFile`/`copyFile`. Appended after `rootDir` to preserve the existing positional
-     * call signature.
+     * call signature - note this is the opposite order from `copyFile`'s `(overwrite, rootDir)`.
      */
     public static async copyBinaryFile(
         srcPath: string,
@@ -130,24 +159,36 @@ const logger = Logger();
         rootDir?: string,
         overwrite: boolean = false
     ): Promise<void> {
-        let srcPathFull: any = path.resolve(srcPath);
-
-        if (rootDir) {
-            FileUtils.assertContained(rootDir, srcPathFull);
+        // `copyBinaryFile`'s `(rootDir, overwrite)` parameter order is the reverse of `copyFile`'s
+        // `(overwrite, rootDir)`. A caller that swaps them by analogy with `copyFile` would otherwise either
+        // silently disable overwrite protection (a boolean passed where `rootDir` is expected is truthy and
+        // simply fails the `typeof` check for a path) or crash confusingly deep inside `path.resolve()`, so it's
+        // rejected here with a message that explains the actual mistake.
+        if (rootDir !== undefined && typeof rootDir !== "string") {
+            throw new TypeError(
+                `copyBinaryFile: "rootDir" must be a string, got ${typeof rootDir}. Did you mean to swap the ` +
+                    `"overwrite" and "rootDir" arguments? Unlike copyFile, copyBinaryFile's signature is ` +
+                    `(srcPath, outPath, variables, rootDir, overwrite).`,
+            );
         }
+        if (typeof overwrite !== "boolean") {
+            throw new TypeError(`copyBinaryFile: "overwrite" must be a boolean, got ${typeof overwrite}.`);
+        }
+
+        let srcPathFull: string = path.resolve(srcPath);
 
         if (!fs.existsSync(srcPathFull)) {
             throw new Error("File does not exist: " + srcPathFull);
         }
 
+        if (rootDir) {
+            srcPathFull = FileUtils.assertContained(rootDir, srcPathFull);
+        }
+
         let outPathFinal: string = path.resolve(StringUtils.findAndReplace(outPath, variables));
 
         if (rootDir) {
-            FileUtils.assertContained(rootDir, outPathFinal);
-        }
-
-        if (fs.existsSync(outPathFinal) && !overwrite) {
-            throw new Error(`File already exists at "${outPathFinal}". Pass overwrite=true to replace it.`);
+            outPathFinal = FileUtils.assertContained(rootDir, outPathFinal);
         }
 
         // Make sure the path leading to the final (template-substituted) destination exists. Must be derived from
@@ -158,7 +199,17 @@ const logger = Logger();
             await mkdirp(outDirPath);
         }
 
-        fs.copyFileSync(srcPathFull, outPathFinal);
+        // `COPYFILE_EXCL` makes the existence check and the copy atomic when `overwrite` is `false` - a plain
+        // `fs.existsSync()` check followed by an unconditional copy would otherwise leave a window where two
+        // concurrent calls both see no existing file and one silently clobbers the other's output.
+        try {
+            fs.copyFileSync(srcPathFull, outPathFinal, overwrite ? 0 : fs.constants.COPYFILE_EXCL);
+        } catch (err: any) {
+            if (!overwrite && err?.code === "EEXIST") {
+                throw new Error(`File already exists at "${outPathFinal}". Pass overwrite=true to replace it.`);
+            }
+            throw err;
+        }
     }
 
     /**
@@ -183,50 +234,54 @@ const logger = Logger();
         force: boolean = false,
         rootDir?: string
     ): Promise<void> {
-        const templatePath = path.resolve(srcPath);
+        let templatePath = path.resolve(srcPath);
 
         if (rootDir) {
-            FileUtils.assertContained(rootDir, templatePath);
+            templatePath = FileUtils.assertContained(rootDir, templatePath);
         }
 
         let files = fs.readdirSync(templatePath, { withFileTypes: true });
-        // Iterated with a sequentially-awaited for-of (not `Array#forEach`, which ignores the promise its async
-        // callback returns): copyDirectory must not resolve until every nested copy has actually finished, and
-        // any error thrown by a nested copy must propagate to the caller instead of becoming an unhandled rejection.
-        for (const file of files) {
-            let extension = path.extname(file.name);
-            if (!extension) {
-                extension = file.name;
-            }
-            extension = extension.replace(".", "");
-            if (excludeFilters.indexOf(extension) === -1) {
-                let destPath = StringUtils.findAndReplace(path.join(outPath, file.name), vars);
-
-                if (rootDir) {
-                    FileUtils.assertContained(rootDir, destPath);
+        // Copied concurrently via `Promise.all` rather than a sequentially-awaited loop, since sibling entries
+        // in the same directory are independent of one another. `Promise.all` still `await`s every entry before
+        // `copyDirectory` itself resolves and still propagates the first rejection to the caller, so this keeps
+        // the same "wait for everything, never swallow an error" guarantee a sequential loop would - it just lets
+        // independent copies overlap instead of running strictly one at a time.
+        await Promise.all(
+            files.map(async (file) => {
+                let extension = path.extname(file.name);
+                if (!extension) {
+                    extension = file.name;
                 }
+                extension = extension.replace(".", "");
+                if (excludeFilters.indexOf(extension) === -1) {
+                    let destPath = StringUtils.findAndReplace(path.join(outPath, file.name), vars);
 
-                if (file.isDirectory()) {
-                    if (!fs.existsSync(destPath)) {
-                        // Recursive: `outPath` itself may not exist yet either, e.g. when directory entries are
-                        // processed ahead of any file entry that would otherwise implicitly create it via mkdirp.
-                        fs.mkdirSync(destPath, { recursive: true });
+                    if (rootDir) {
+                        destPath = FileUtils.assertContained(rootDir, destPath);
                     }
-                    await FileUtils.copyDirectory(
-                        path.join(templatePath, file.name),
-                        destPath,
-                        vars,
-                        excludeFilters,
-                        binaryFilters,
-                        force,
-                        rootDir
-                    );
-                } else if (binaryFilters.indexOf(extension) >= 0) {
-                    await FileUtils.copyBinaryFile(path.join(templatePath, file.name), destPath, vars, rootDir, force);
-                } else {
-                    await FileUtils.copyFile(path.join(templatePath, file.name), destPath, vars, force, rootDir);
+
+                    if (file.isDirectory()) {
+                        if (!fs.existsSync(destPath)) {
+                            // Recursive: `outPath` itself may not exist yet either, e.g. when directory entries are
+                            // processed ahead of any file entry that would otherwise implicitly create it via mkdirp.
+                            fs.mkdirSync(destPath, { recursive: true });
+                        }
+                        await FileUtils.copyDirectory(
+                            path.join(templatePath, file.name),
+                            destPath,
+                            vars,
+                            excludeFilters,
+                            binaryFilters,
+                            force,
+                            rootDir
+                        );
+                    } else if (binaryFilters.indexOf(extension) >= 0) {
+                        await FileUtils.copyBinaryFile(path.join(templatePath, file.name), destPath, vars, rootDir, force);
+                    } else {
+                        await FileUtils.copyFile(path.join(templatePath, file.name), destPath, vars, force, rootDir);
+                    }
                 }
-            }
-        }
+            }),
+        );
     }
 }
