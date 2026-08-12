@@ -55,11 +55,14 @@ export class StringUtils {
      * @param {object} variables A map of key=>value pairs to search for and replace.
      */
     public static findAndReplace(contents: string, variables: any): string {
-        // Only keys with a defined, non-null value are substituted - a missing/undefined/null value leaves the
-        // literal "{{key}}" placeholder in the output rather than replacing it with e.g. the string "undefined".
-        const keys: string[] = Object.keys(variables).filter((k) => variables[k] !== undefined && variables[k] !== null);
-        if (keys.length === 0) {
-            return contents;
+        const keys: string[] = Object.keys(variables);
+
+        // Keys with a null/undefined value are substituted as an empty string so that "{{key}}" placeholders aren't left
+        // in the final string.
+        for (const key of keys) {
+            if (variables[key] === null || variables[key] === undefined) {
+                variables[key] = "";
+            }
         }
 
         // A single combined regex - built once, O(k) - matching any `{{key}}` for any known key, rather than one
@@ -68,12 +71,15 @@ export class StringUtils {
         // catastrophic backtracking (ReDoS). Delimiting each alternative with the literal `{{`/`}}` means the
         // matched key text is always recovered exactly, regardless of alternative order or shared prefixes
         // between keys (backtracking still finds the alternative that makes the overall `\{\{...\}\}` match).
-        const combined = new RegExp("\\{\\{(" + keys.map((k) => StringUtils.escapeRegExp(k)).join("|") + ")\\}\\}", "g");
+        const combined = new RegExp(
+            "\\{\\{(" + keys.map((k) => StringUtils.escapeRegExp(k)).join("|") + ")\\}\\}",
+            "g",
+        );
 
         // A function replacer is used (rather than passing the value directly) so a value containing
         // `$`-sequences (`$&`, `$$`, `$1`, ...) is inserted literally instead of being interpreted by
         // `String.replace` as a special pattern.
-        const resolve = (key: string): string => (variables[key]).toString();
+        const resolve = (key: string): string => variables[key].toString();
 
         // Resolve one level of nested variable references within each value (e.g. a value of "{{adjective}} Dog"
         // has "{{adjective}}" substituted), then use the resolved values for the final pass over `contents`.

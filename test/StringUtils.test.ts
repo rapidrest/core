@@ -50,7 +50,7 @@ describe("StringUtils Tests.", () => {
         expect(result).toBe("The quick brown  jumped 0 times over the lazy dog.");
     });
 
-    it("findAndReplace leaves the placeholder when a variable is undefined or null.", () => {
+    it("findAndReplace replaces the placeholder with an empty string when a variable is undefined or null.", () => {
         let map = {
             adjective: "lazy",
             animal1: undefined,
@@ -59,9 +59,9 @@ describe("StringUtils Tests.", () => {
         };
         let result = StringUtils.findAndReplace(
             "The quick {{color}} {{animal1}} jumped over the {{animal2}} {{adjective}} dog.",
-            map as any
+            map as any,
         );
-        expect(result).toBe("The quick brown {{animal1}} jumped over the {{animal2}} lazy dog.");
+        expect(result).toBe("The quick brown  jumped over the  lazy dog.");
     });
 
     it("replaceAll returns successfully.", () => {
