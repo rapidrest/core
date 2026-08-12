@@ -423,7 +423,18 @@ export class JWTUtils {
                 payload.profile = JWTUtils.hybridDecrypt(keyOptions.private_key, payload.profile);
             } else {
                 passwordOptions = payloadOptions as JWTUtilsPayloadPasswordOptions;
-                const [saltB64, tagB64, profile] = payload.profile.split(":");
+                const parts: string[] = payload.profile.split(":");
+                // The current format is `<salt>:<authTag>:<ciphertext>` (3 parts). A 2-part `<salt>:<ciphertext>`
+                // payload is the pre-AEAD-auth-tag format from before this method required an auth tag; without
+                // this check, `encryptedProfile` would silently come back `undefined` and decryption would be
+                // skipped, surfacing as an opaque JSON.parse SyntaxError in finalizePayload() instead of a clear
+                // error identifying the actual problem.
+                if (parts.length !== 3) {
+                    throw new Error(
+                        "Token payload uses an unrecognized or outdated encrypted format and cannot be decoded.",
+                    );
+                }
+                const [saltB64, tagB64, profile] = parts;
                 salt = Buffer.from(saltB64, "base64");
                 authTagB64 = tagB64;
                 encryptedProfile = profile;

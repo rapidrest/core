@@ -63,6 +63,7 @@ export class UserUtils {
                 const parts: string[] = externalId.split(":");
                 if (parts.length === 2 && parts[0] === type) {
                     result = parts[1];
+                    break;
                 }
             }
         }

@@ -164,6 +164,27 @@ describe("ThreadPool Unit Tests.", () => {
         expect(errors).toEqual([[0, err]]);
     });
 
+    it("Routes a post-startup ERROR message to 'error' callbacks, not 'message' callbacks.", async () => {
+        // Regression test: WorkerMessageType.ERROR messages sent after startup (e.g. a runtime exception caught
+        // by ThreadWorkerEntry.js's onMessage handler) must be routed the same way the native "error" event is,
+        // not silently fall through to "message" listeners where error-monitoring code would never see them.
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js" }, 1);
+        createdWorkers[0].emit("online");
+        await promise;
+
+        const errors: any[] = [];
+        const messages: any[] = [];
+        pool.on("error", (id: number, err: any) => errors.push([id, err]));
+        pool.on("message", (id: number, msg: any) => messages.push([id, msg]));
+
+        const err = new Error("worker crashed after startup");
+        createdWorkers[0].emit("message", { type: WorkerMessageType.ERROR, data: err });
+
+        expect(errors).toEqual([[0, err]]);
+        expect(messages).toEqual([]);
+    });
+
     it("Notifies registered 'exit' callbacks and does not restart by default.", async () => {
         const pool = new ThreadPool(1);
         const promise = pool.start({ entry: "./worker.js" }, 1);

@@ -201,6 +201,24 @@ describe("JWTUtils Tests.", () => {
         await expect(JWTUtils.decodeToken(encryptGcmConfig, tamperedToken)).rejects.toThrow();
     });
 
+    it("Throws a clear error for a legacy 2-part password-encrypted payload (pre-auth-tag format).", async () => {
+        // Simulates a token issued before the AEAD auth-tag fix, whose payload.profile is `<salt>:<ciphertext>`
+        // instead of the current `<salt>:<authTag>:<ciphertext>`. Must fail with a clear, actionable error
+        // rather than an opaque JSON.parse SyntaxError from finalizePayload() decoding still-encrypted data.
+        const legacyPayload = {
+            profile: "c29tZXNhbHQ=:c29tZWNpcGhlcnRleHQ=",
+            encryption: true,
+            sessionUid: "s1",
+        };
+        const token = jwt.sign(legacyPayload, encryptConfig.secret, encryptConfig.options);
+        await expect(JWTUtils.decodeToken(encryptConfig, token)).rejects.toThrow(
+            "unrecognized or outdated encrypted format",
+        );
+        expect(() => JWTUtils.decodeTokenSync(encryptConfig, token)).toThrow(
+            "unrecognized or outdated encrypted format",
+        );
+    });
+
     it("Can decode JWT token. (sync)", () => {
         const token = JWTUtils.createTokenSync(config, testUser);
         expect(token).toBeDefined();

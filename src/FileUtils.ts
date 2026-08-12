@@ -123,14 +123,18 @@ const logger = Logger();
     ): Promise<void> {
         let srcPathFull: string = path.resolve(srcPath);
 
-        if (!fs.existsSync(srcPathFull)) {
-            throw new Error("File does not exist: " + srcPathFull);
-        }
-
+        // Containment is checked *before* existence: assertContained() already tolerates a not-yet-existing
+        // target (it walks up to the nearest existing ancestor), so checking existence first would let a path
+        // outside rootDir get a different error ("File does not exist") depending on whether it happens to
+        // exist on disk - a file-existence oracle for paths the caller is supposed to be sandboxed away from.
         if (rootDir) {
             // Re-resolved via the realpath'd return value so the subsequent read follows the *validated* path
             // rather than the original (potentially symlinked) one.
             srcPathFull = FileUtils.assertContained(rootDir, srcPathFull);
+        }
+
+        if (!fs.existsSync(srcPathFull)) {
+            throw new Error("File does not exist: " + srcPathFull);
         }
 
         let template = fs.readFileSync(srcPathFull, "utf-8");

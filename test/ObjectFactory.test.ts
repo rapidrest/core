@@ -351,6 +351,16 @@ describe("ObjectFactory Tests", () => {
         await expect(factory.destroy([a, b])).resolves.toBeUndefined();
     });
 
+    it("destroy() skips null/undefined array entries instead of throwing and aborting the rest of the batch.", async () => {
+        const a: any = await factory.newInstance(TestClassA, { name: "arrC" });
+        const b: any = await factory.newInstance(TestClassA, { name: "arrD" });
+        // Simulates a caller building the array from a lookup where one id didn't resolve to an instance,
+        // e.g. `ids.map(id => factory.getInstance(id))`.
+        await expect(factory.destroy([a, undefined, b, null])).resolves.toBeUndefined();
+        expect(factory.instances.has("TestClassA:arrC")).toBe(false);
+        expect(factory.instances.has("TestClassA:arrD")).toBe(false);
+    });
+
     it("destroy() uses _name when the object has no name property, and logs via the provided logger.", async () => {
         const stubLogger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
         const localFactory = new ObjectFactory(config, stubLogger);

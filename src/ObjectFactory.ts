@@ -127,6 +127,10 @@ export class ObjectFactory {
 
         // Go through each object and call its destructor, if available
         for (const obj of objs) {
+            if (!obj) {
+                continue;
+            }
+
             // `_name` - the factory's own non-enumerable bookkeeping field set in `newInstance()` - is the only
             // reliable source of an instance's registry key. A business-domain `.name` property (e.g. an
             // `Organization`/`Team` entity that legitimately has a `name` field) must never be consulted here:

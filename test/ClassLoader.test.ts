@@ -58,6 +58,15 @@ class MyClassNamed {
 module.exports.MyClassNamed = MyClassNamed;
         `;
 
+        const tsPrimitiveExport: string = `
+export default class MyClassWithPrimitive {
+    contructor() {
+    }
+}
+
+export const VERSION = "1.0.0";
+        `;
+
         await mkdirp("./test/test-classes/com/company/javascript");
         await mkdirp("./test/test-classes/com/company/typescript");
         fs.writeFileSync("./test/test-classes/dummy.txt", "This is a test");
@@ -68,6 +77,7 @@ module.exports.MyClassNamed = MyClassNamed;
         fs.writeFileSync("./test/test-classes/MyTypeScriptClass.ts", tsMyClass);
         fs.writeFileSync("./test/test-classes/com/company/typescript/MyClass.ts", tsMyClass);
         fs.writeFileSync("./test/test-classes/com/company/typescript/MultipleExports.ts", tsMultipleExports);
+        fs.writeFileSync("./test/test-classes/com/company/typescript/PrimitiveExport.ts", tsPrimitiveExport);
         fs.writeFileSync("./test/test-classes/com/company/typescript/dummy.txt", "This is a test");
     });
 
@@ -89,6 +99,19 @@ module.exports.MyClassNamed = MyClassNamed;
         expect(loader.getClass("com.company.typescript.MyClass2")).toBeDefined();
         expect(loader.getClass("com.company.typescript.MyEnum2")).toBeDefined();
         expect(loader.getClass("MyClassNamed")).toBeDefined();
+    });
+
+    it("Can load a directory containing a module that exports a primitive value alongside a class.", async () => {
+        // Regression test: `export const VERSION = "1.0.0"` alongside a class export must not crash the whole
+        // directory load - ES modules run in strict mode, and assigning `.fqn` to a primitive-valued export
+        // throws a TypeError if it isn't skipped.
+        let loader: ClassLoader = new ClassLoader("./test/test-classes");
+        expect(loader).toBeDefined();
+        await expect(loader.load()).resolves.not.toThrow();
+        expect(loader.getClass("com.company.typescript.PrimitiveExport")).toBeDefined();
+        expect(loader.getClass("com.company.typescript.VERSION")).toBeUndefined();
+        // Sibling classes in the same directory must still load successfully.
+        expect(loader.getClass("com.company.typescript.MyClass")).toBeDefined();
     });
 
     it("Can load JavaScript classes only.", async () => {

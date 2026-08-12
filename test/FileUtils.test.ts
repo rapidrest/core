@@ -135,6 +135,27 @@ describe("FileUtils Tests", () => {
         }
     });
 
+    it("copyFile reports a containment escape (not a bare existence check) for a non-existent path outside rootDir.", async () => {
+        // Regression test: containment must be checked before existence, otherwise a caller sandboxing srcPath
+        // via rootDir gets a different error message depending on whether the out-of-root path happens to exist
+        // on disk - a file-existence oracle for paths outside the intended sandbox.
+        const rootDir = path.resolve("tests-fileutils-root");
+        fs.mkdirSync(rootDir, { recursive: true });
+        try {
+            await FileUtils.copyFile(
+                "tests-fileutils/does-not-exist-outside-root.txt",
+                "tests-fileutils/test.copy-oracle.txt",
+                {},
+                false,
+                rootDir
+            );
+            throw new Error("Failed to throw error.");
+        } catch (err: any) {
+            expect(err.message).toContain("escapes the allowed root directory");
+            expect(err.message).not.toContain("File does not exist");
+        }
+    });
+
     it("copyFile succeeds when the source file is empty.", async () => {
         fs.writeFileSync("tests-fileutils/empty.txt", "");
         await FileUtils.copyFile("tests-fileutils/empty.txt", "tests-fileutils/empty.copy.txt");

@@ -55,40 +55,38 @@ export class StringUtils {
      * @param {object} variables A map of key=>value pairs to search for and replace.
      */
     public static findAndReplace(contents: string, variables: any): string {
-        let output: string = contents;
-
-        // Pre-compile one regex per key (O(n)) rather than creating new RegExp inside nested loops (O(n²)).
-        // The key is escaped since it may contain regex metacharacters (e.g. from external input), which could
-        // otherwise be used for regex injection or catastrophic backtracking (ReDoS).
-        const regexCache = new Map<string, RegExp>();
-        for (const key in variables) {
-            const escapedKey = StringUtils.escapeRegExp(key);
-            regexCache.set(key, new RegExp("(\\{\\{" + escapedKey + "\\}\\})", "g"));
+        // Only keys with a defined, non-null value are substituted - a missing/undefined/null value leaves the
+        // literal "{{key}}" placeholder in the output rather than replacing it with e.g. the string "undefined".
+        const keys: string[] = Object.keys(variables).filter((k) => variables[k] !== undefined && variables[k] !== null);
+        if (keys.length === 0) {
+            return contents;
         }
 
-        // Go through all variables and perform replacement
-        for (const key in variables) {
-            // Perform replacement on the variable value itself. This allows nested variable replacement.
-            // Uses a null/undefined check rather than a truthiness check so falsy-but-real values (0, false,
-            // "") are still substituted instead of leaving the literal "{{key}}" placeholder in the output.
-            if (variables[key] !== undefined && variables[key] !== null) {
-                let value: string = variables[key] as string;
-                for (const key2 in variables) {
-                    if (variables[key2] !== undefined && variables[key2] !== null) {
-                        // A function replacer is used (rather than passing the value directly as the second
-                        // argument) so a value containing `$`-sequences (`$&`, `$$`, `$1`, ...) is inserted
-                        // literally instead of being interpreted by `String.replace` as a special pattern.
-                        const replacement2 = variables[key2] as string;
-                        value = value.toString().replace(regexCache.get(key2)!, () => replacement2);
-                    }
-                }
+        // A single combined regex - built once, O(k) - matching any `{{key}}` for any known key, rather than one
+        // regex per key checked in a nested O(k²) loop. Each key is escaped since it may contain regex
+        // metacharacters (e.g. from external input), which could otherwise be used for regex injection or
+        // catastrophic backtracking (ReDoS). Delimiting each alternative with the literal `{{`/`}}` means the
+        // matched key text is always recovered exactly, regardless of alternative order or shared prefixes
+        // between keys (backtracking still finds the alternative that makes the overall `\{\{...\}\}` match).
+        const combined = new RegExp("\\{\\{(" + keys.map((k) => StringUtils.escapeRegExp(k)).join("|") + ")\\}\\}", "g");
 
-                const replacement = value;
-                output = output.replace(regexCache.get(key)!, () => replacement);
+        // A function replacer is used (rather than passing the value directly) so a value containing
+        // `$`-sequences (`$&`, `$$`, `$1`, ...) is inserted literally instead of being interpreted by
+        // `String.replace` as a special pattern.
+        const resolve = (key: string): string => (variables[key]).toString();
+
+        // Resolve one level of nested variable references within each value (e.g. a value of "{{adjective}} Dog"
+        // has "{{adjective}}" substituted), then use the resolved values for the final pass over `contents`.
+        const resolved = new Map<string, string>();
+        for (const key of keys) {
+            let value: string = resolve(key);
+            if (value.includes("{{")) {
+                value = value.replace(combined, (_full, matchedKey) => resolve(matchedKey));
             }
+            resolved.set(key, value);
         }
 
-        return output;
+        return contents.replace(combined, (_full, matchedKey) => resolved.get(matchedKey) ?? _full);
     }
 
     /**

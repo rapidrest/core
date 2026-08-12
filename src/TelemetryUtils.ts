@@ -197,4 +197,23 @@ export class EventUtils {
             EventUtils.listeners.set(type, callbacks);
         }
     }
+
+    /**
+     * Unregisters a `callback` previously registered via `on()` for the given event `type`. Since `EventUtils` is
+     * a long-lived process-wide singleton, any listener registered dynamically (rather than once at startup) must
+     * eventually be removed via this method or its closure - and anything it captures - is retained for the life
+     * of the process.
+     *
+     * @param type The type of event the callback was registered for.
+     * @param callback The exact function reference passed to `on()`.
+     */
+    public static off(type: string, callback: Function): void {
+        const callbacks: Function[] | undefined = EventUtils.listeners.get(type);
+        if (callbacks) {
+            const idx: number = callbacks.indexOf(callback);
+            if (idx >= 0) {
+                callbacks.splice(idx, 1);
+            }
+        }
+    }
 }

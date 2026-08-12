@@ -156,6 +156,20 @@ describe("MessagingUtils Tests.", () => {
         await expect(messagingUtils.sendSlack("test", {})).rejects.toThrow("Slack is not configured.");
     });
 
+    it("sendSlack sends to all configured Slack workspaces concurrently.", async () => {
+        const config = (await import("./config.js")).default;
+        configuration.slack = [
+            { token: "test1", signingSecret: "test-secret1" },
+            { token: "test2", signingSecret: "test-secret2" },
+        ];
+        config.overrides(configuration);
+        const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+        const result = await messagingUtils.sendSlack("test", {});
+        expect(result).toHaveLength(2);
+        expect(result?.[0].ok).toBe(true);
+        expect(result?.[1].ok).toBe(true);
+    });
+
     it("Cannot setup slack, @slack/bolt does not export App.", async () => {
         slackAppOverride = undefined;
         try {

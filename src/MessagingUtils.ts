@@ -282,15 +282,16 @@ export class MessagingUtils {
         // Render using cached compiled delegate
         const message: string = this._compiledTemplates.get(`${templateName}:slack_text`)!(templateVars);
 
-        const result: any[] = [];
-        // Send the slack message to the desired channel
-        for (const app of this.slackApps) {
-            const res: any = await app.client.chat.postMessage({
-                channel: tplConfig.slack_channel,
-                text: message,
-            });
-            result.push(res);
-        }
+        // Send to every configured Slack workspace concurrently - they're independent deliveries to different
+        // apps/tokens, so there's no reason to pay N round-trips of latency sequentially on this alerting path.
+        const result: any[] = await Promise.all(
+            this.slackApps.map((app) =>
+                app.client.chat.postMessage({
+                    channel: tplConfig.slack_channel,
+                    text: message,
+                }),
+            ),
+        );
 
         return result;
     }

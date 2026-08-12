@@ -46,6 +46,11 @@ describe("UserUtils Tests.", () => {
         expect(UserUtils.hasOrganizations(testUser, "not-an-array" as any)).toBe(false);
     });
 
+    it("getExternalId returns the first match instead of the last when duplicate entries exist for a type.", () => {
+        const userWithDupes = { externalIds: ["google:abc", "google:def"] };
+        expect(UserUtils.getExternalId(userWithDupes, "google")).toBe("abc");
+    });
+
     it("getExternalId returns undefined for a missing or malformed user.", () => {
         expect(UserUtils.getExternalId(undefined, "facebook")).toBeUndefined();
         expect(UserUtils.getExternalId({}, "facebook")).toBeUndefined();

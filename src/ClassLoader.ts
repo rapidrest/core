@@ -113,6 +113,14 @@ export class ClassLoader {
         if (mod) {
             for (let name in mod) {
                 let clazz: any = mod[name];
+                // Skip primitive-valued exports (string/number/boolean/etc.) rather than registering them: ES
+                // modules run in strict mode, so `clazz.fqn = fqn` below would throw `TypeError: Cannot create
+                // property 'fqn' on <primitive>` for a module that exports e.g. `export const VERSION = "1.0.0"`
+                // alongside its classes, aborting the load of the entire directory. Enums compile to plain
+                // objects (typeof "object"), so they're still registered as before.
+                if (clazz === null || (typeof clazz !== "function" && typeof clazz !== "object")) {
+                    continue;
+                }
                 let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? fileName.split(".")[0] : name}`;
                 clazz.fqn = fqn;
                 this.classes.set(fqn, clazz);

@@ -203,6 +203,27 @@ describe("TelemetryUtils Tests.", () => {
         expect(warnSpy).toHaveBeenCalled();
     });
 
+    it("off unregisters a listener so it no longer receives events.", async () => {
+        await EventUtils.init(config, undefined, authToken);
+        const data: any = { prop1: "a" };
+        const event: Event = new Event(config, userUid, data);
+
+        nock(config.get("telemetry_services:url")).post("/events").reply(201, event);
+
+        let count = 0;
+        const callback = () => {
+            count++;
+        };
+        EventUtils.on("OffEvent", callback);
+        EventUtils.off("OffEvent", callback);
+        await EventUtils.record(data, "OffEvent");
+        expect(count).toBe(0);
+    });
+
+    it("off does nothing for a callback or type that was never registered.", () => {
+        expect(() => EventUtils.off("NeverRegisteredType", () => undefined)).not.toThrow();
+    });
+
     it("on allows registering multiple listeners for an already-registered event type.", async () => {
         await EventUtils.init(config, undefined, authToken);
         const data: any = { prop1: "a" };

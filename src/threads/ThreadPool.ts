@@ -119,6 +119,22 @@ export class ThreadPool {
      * worker that crashes and is restarted before ever reporting ready would leave `start()`'s returned promise
      * hanging forever, since nothing would be listening for the *replacement's* readiness signal.
      */
+    /**
+     * Invokes every callback registered for `type` via `on()`, passing `idx` and optional `data`. Centralizes
+     * the "look up listeners, no-op if none registered" dispatch idiom shared by every worker event handler in
+     * `createWorker()`/`stop()` below, so a future change to how listeners are invoked - or a new message type
+     * that needs routing to a given event - only has to be made in one place instead of risking a hand-copied
+     * site being missed (as happened with WorkerMessageType.ERROR previously falling through to "message").
+     */
+    private dispatch(type: string, idx: number, data?: any): void {
+        const listeners: Array<WorkerCallback> | undefined = this.callbacks.get(type);
+        if (listeners) {
+            for (const callback of listeners) {
+                callback(idx, data);
+            }
+        }
+    }
+
     private createWorker(idx: number, options: WorkerOptions, onRestart?: (newWorker: Worker) => void): Worker {
         if (!options.entry || !!options.worker) {
             options.entry = path.join(_dirname, "ThreadWorkerEntry.js");
@@ -136,33 +152,18 @@ export class ThreadPool {
         // doesn't fire "online" callbacks twice for the same worker.
         worker.on("online", () => {
             if (options && !options.worker) {
-                const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("online");
-                if (listeners) {
-                    for (const callback of listeners) {
-                        callback(idx);
-                    }
-                }
+                this.dispatch("online", idx);
             }
         });
         worker.on("error", (error) => {
-            const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("error");
-            if (listeners) {
-                for (const callback of listeners) {
-                    callback(idx, error);
-                }
-            }
+            this.dispatch("error", idx, error);
         });
         worker.on("exit", async (code) => {
             // While stop() is in progress it fires "exit" callbacks itself, using the authoritative exit code
             // returned by terminate() - which is what triggers this very event. Firing them again here would
             // invoke every registered "exit" callback twice per worker for a single stop() call.
             if (!this.shutdown) {
-                const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("exit");
-                if (listeners) {
-                    for (const callback of listeners) {
-                        callback(idx, code);
-                    }
-                }
+                this.dispatch("exit", idx, code);
             }
 
             // Restart worker thread
@@ -179,24 +180,17 @@ export class ThreadPool {
                     this.logger?.log(msg.data);
                     break;
                 case WorkerMessageType.ONLINE:
-                    {
-                        const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("online");
-                        if (listeners) {
-                            for (const callback of listeners) {
-                                callback(idx);
-                            }
-                        }
-                    }
+                    this.dispatch("online", idx);
+                    break;
+                case WorkerMessageType.ERROR:
+                    // A post-startup runtime error reported by the worker (see ThreadWorkerEntry.js's message
+                    // handler). Must route to "error" listeners like the native worker.on("error", ...) case
+                    // above, not fall through to "message" - otherwise anything monitoring failures only via
+                    // pool.on("error", ...) never learns the worker failed.
+                    this.dispatch("error", idx, msg.data);
                     break;
                 default:
-                    {
-                        const listeners: Array<WorkerCallback> | undefined = this.callbacks.get("message");
-                        if (listeners) {
-                            for (const callback of listeners) {
-                                callback(idx, msg);
-                            }
-                        }
-                    }
+                    this.dispatch("message", idx, msg);
                     break;
             }
         });
