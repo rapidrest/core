@@ -393,6 +393,27 @@ describe("MessagingUtils Tests.", () => {
             await expect(messagingUtils.sendEmail("test", { name: "World" })).resolves.toBeDefined();
         });
 
+        it("Drops the compiled delegate for a field that is cleared after the first load instead of keeping stale output.", async () => {
+            const config = (await import("./config.js")).default;
+            configuration.templates.test = {
+                enabled: true,
+                subject: "Alert Subject",
+                text: "Hello {{name}}",
+            };
+            config.overrides(configuration);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+
+            const tpl1 = messagingUtils.loadTemplate("test");
+            expect(tpl1.text).toBe("Hello {{name}}");
+            const first = await messagingUtils.sendEmail("test", { name: "World" });
+            expect(first.text).toBe("Hello World");
+
+            // Simulate a live config reload clearing `text` on the same (shared) template object.
+            tpl1.text = "";
+            const second = await messagingUtils.sendEmail("test", { name: "World" });
+            expect(second.text).toBeNull();
+        });
+
         it("Does not load html/text when htmlPath/textPath point to non-existent files.", async () => {
             const config = (await import("./config.js")).default;
             configuration.templates.test = {

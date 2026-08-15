@@ -173,6 +173,24 @@ describe("ObjectUtils Tests", () => {
         expect(() => ObjectUtils.deleteScopedProps(parent, user, undefined, true)).not.toThrow();
     });
 
+    it("Throws instead of recursing past the maximum nesting depth for a non-circular object graph.", () => {
+        const user: JWTUser = {
+            uid: uuidV4(),
+            name: "testuser",
+            roles: [],
+            scopes: [],
+        };
+        let root: any = {};
+        let cursor: any = root;
+        for (let i = 0; i < 60; i++) {
+            cursor.child = {};
+            cursor = cursor.child;
+        }
+        expect(() => ObjectUtils.deleteScopedProps(root, user, undefined, true)).toThrow(
+            /Maximum object nesting depth/,
+        );
+    });
+
     it("Can validate object.", () => {
         let testObj: TestValidationClass = new TestValidationClass();
         ObjectUtils.validate(testObj);
@@ -275,6 +293,16 @@ describe("ObjectUtils Tests", () => {
         const child: any = { uid: uuidV4(), semver: "1.0.0", parent };
         parent.child = child;
         expect(() => ObjectUtils.validate(parent, undefined, true)).not.toThrow();
+    });
+
+    it("Throws instead of recursing past the maximum nesting depth for a non-circular object graph.", () => {
+        let root: any = {};
+        let cursor: any = root;
+        for (let i = 0; i < 60; i++) {
+            cursor.child = {};
+            cursor = cursor.child;
+        }
+        expect(() => ObjectUtils.validate(root, undefined, true)).toThrow(/Maximum object nesting depth/);
     });
 
     it("Runs the @Validator function for a falsy-but-valid property value (0).", () => {

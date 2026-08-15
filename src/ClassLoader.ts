@@ -4,7 +4,6 @@
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
-import { FileUtils } from "./FileUtils.js";
 
 const sepRegex = new RegExp("\\" + path.sep, "g");
 /**
@@ -42,6 +41,10 @@ const sepRegex = new RegExp("\\" + path.sep, "g");
  * **IMPORTANT**: If you use *ClassLoader* to dynamically load TypeScript files (.ts, .cts, .mts, etc.) at runtime using
  * an ESM-only project you must use the `ts-node/esm` module loader. This can be specified by passing the `--loader` to
  * node at runtime.
+ *
+ * Also, this code intentionally does not perform path-containment and symlink checks during it's load process as the
+ * purpose of this utility is never to be exposed to a client-facing API or process. Doing so would never make sense
+ * anyway. The lack of containment checks here is to eliminate real performance costs that such containment introduces.
  *
  * ```
  * node --loader ts-node/esm <module>
@@ -137,12 +140,7 @@ export class ClassLoader {
      * @param dir The directory, relative to `rootDir`, containing modules to load.
      */
     public async load(dir: string = ""): Promise<void> {
-        // Ensure the resolved directory is still contained within rootDir, following symlinks (`assertContained`
-        // resolves the real path of the target and re-validates against it), so a caller-supplied `dir` - or a
-        // symlink anywhere in its path - can't escape rootDir and dynamically import/execute arbitrary modules
-        // found elsewhere on disk. `fqp` is reassigned to the validated realpath so `readdir()` below always
-        // reads through the path that was actually checked.
-        let fqp: string = await FileUtils.assertContained(this.rootDir, path.resolve(path.join(this.rootDir, dir)));
+        let fqp: string = path.resolve(path.join(this.rootDir, dir));
 
         let files: fs.Dirent[] = await fs.promises.readdir(fqp, { withFileTypes: true });
         // Processed concurrently via `Promise.all` since sibling entries in a directory are independent of one
@@ -160,12 +158,7 @@ export class ClassLoader {
                 let relpath: string = path.relative(this.rootDir, fqp);
                 let pkg: string = relpath.replace(sepRegex, ".");
 
-                // Resolved and validated up front - following and re-checking any symlink via `assertContained` -
-                // so the entry is only ever recursed into, imported from, or otherwise touched via a path that's
-                // already been confirmed to stay within rootDir. Using the returned (realpath'd) value for the
-                // actual `import()` below, rather than re-deriving the path afterwards, avoids re-opening the
-                // symlink-swap TOCTOU window the check just closed.
-                let fullpath: string = await FileUtils.assertContained(this.rootDir, path.join(fqp, file.name));
+                let fullpath: string = path.join(fqp, file.name);
 
                 let extension = path.extname(file.name);
                 if (!extension) {
@@ -174,9 +167,9 @@ export class ClassLoader {
 
                 // `Dirent.isDirectory()` reflects the directory entry itself, not what it points to, so a
                 // symlinked directory falls through to the extension-matching branches below rather than being
-                // recursed into - preserved deliberately: following it here (e.g. via `fs.statSync().isDirectory()`)
-                // would let a symlink that points back at one of its own ancestors send `load()` into unbounded
-                // recursion. Any symlink, directory or file, is still fully validated above via `assertContained`.
+                // recursed into - deliberate: following it here (e.g. via `fs.statSync().isDirectory()`) would
+                // let a symlink that points back at one of its own ancestors send `load()` into unbounded
+                // recursion.
                 if (file.isDirectory()) {
                     let subdir: string = path.join(dir, file.name);
                     await this.load(subdir);

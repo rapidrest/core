@@ -57,12 +57,14 @@ export class StringUtils {
     public static findAndReplace(contents: string, variables: any): string {
         const keys: string[] = Object.keys(variables);
 
-        // Keys with a null/undefined value are substituted as an empty string so that "{{key}}" placeholders aren't left
-        // in the final string.
+        // Keys with a null/undefined value are substituted as an empty string so that "{{key}}" placeholders aren't
+        // left in the final string. Resolved into a local copy rather than writing back onto `variables` itself,
+        // since this is a read-only formatting call from the caller's perspective - mutating their object would
+        // silently overwrite any null/undefined sentinel they relied on after this call returns.
+        const values: Record<string, any> = {};
         for (const key of keys) {
-            if (variables[key] === null || variables[key] === undefined) {
-                variables[key] = "";
-            }
+            const value = variables[key];
+            values[key] = value === null || value === undefined ? "" : value;
         }
 
         // A single combined regex - built once, O(k) - matching any `{{key}}` for any known key, rather than one
@@ -79,7 +81,7 @@ export class StringUtils {
         // A function replacer is used (rather than passing the value directly) so a value containing
         // `$`-sequences (`$&`, `$$`, `$1`, ...) is inserted literally instead of being interpreted by
         // `String.replace` as a special pattern.
-        const resolve = (key: string): string => variables[key].toString();
+        const resolve = (key: string): string => values[key].toString();
 
         // Resolve one level of nested variable references within each value (e.g. a value of "{{adjective}} Dog"
         // has "{{adjective}}" substituted), then use the resolved values for the final pass over `contents`.

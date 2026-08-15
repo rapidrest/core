@@ -201,6 +201,18 @@ describe("JWTUtils Tests.", () => {
         await expect(JWTUtils.decodeToken(encryptGcmConfig, tamperedToken)).rejects.toThrow();
     });
 
+    it("Throws a clear error for a malformed hybrid-encrypted (public/private key) payload.", async () => {
+        const token = await JWTUtils.createToken(encryptKeyConfig, testUser);
+        const decoded: any = jwt.decode(token);
+        // hybridEncrypt() produces `<wrappedKey>.<iv>.<authTag>.<ciphertext>` (4 parts). Drop one so only 3 remain.
+        const parts: string[] = (decoded.profile as string).split(".");
+        decoded.profile = [parts[0], parts[1], parts[3]].join(".");
+        const tamperedToken = jwt.sign(decoded, encryptKeyConfig.secret);
+        await expect(JWTUtils.decodeToken(encryptKeyConfig, tamperedToken)).rejects.toThrow(
+            /unrecognized or outdated format/,
+        );
+    });
+
     it("Throws a clear error for a legacy 2-part password-encrypted payload (pre-auth-tag format).", async () => {
         // Simulates a token issued before the AEAD auth-tag fix, whose payload.profile is `<salt>:<ciphertext>`
         // instead of the current `<salt>:<authTag>:<ciphertext>`. Must fail with a clear, actionable error

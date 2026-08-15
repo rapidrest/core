@@ -216,9 +216,16 @@ export class MessagingUtils {
         ];
         for (const [field, value] of fields) {
             const cacheKey = `${name}:${field}`;
-            if (value && this._compiledTemplateSources.get(cacheKey) !== value) {
-                this._compiledTemplates.set(cacheKey, handlebars.compile(value));
-                this._compiledTemplateSources.set(cacheKey, value);
+            if (value) {
+                if (this._compiledTemplateSources.get(cacheKey) !== value) {
+                    this._compiledTemplates.set(cacheKey, handlebars.compile(value));
+                    this._compiledTemplateSources.set(cacheKey, value);
+                }
+            } else if (this._compiledTemplateSources.has(cacheKey)) {
+                // The field was cleared/removed (e.g. a live config reload disabling it) - drop the stale
+                // compiled delegate rather than continuing to serve output from a value that's no longer current.
+                this._compiledTemplates.delete(cacheKey);
+                this._compiledTemplateSources.delete(cacheKey);
             }
         }
 

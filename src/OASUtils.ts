@@ -1,7 +1,7 @@
 ﻿///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-import fs from "fs";
+import fs from "fs/promises";
 import { CacheUtils } from "./CacheUtils.js";
 import { FileUtils } from "./FileUtils.js";
 import { Logger } from "./Logger.js";
@@ -238,16 +238,28 @@ export class OASUtils {
             }
         }
 
-        if (_specCache.has(file)) {
-            return _specCache.get(file);
+        // Keyed by the resolved/validated path (when available) rather than the raw `file` argument, so two calls
+        // that pass the same relative `file` string but resolve it against different `allowedDirs` don't collide
+        // on the same cache entry and return each other's content.
+        const cacheKey = resolvedFile ?? file;
+        if (_specCache.has(cacheKey)) {
+            return _specCache.get(cacheKey);
         }
 
         let apiSpec: any = null;
 
-        if (fs.existsSync(resolvedFile ?? file)) {
-            const readFile = resolvedFile ?? file;
+        const readFile = resolvedFile ?? file;
+        let fileExists = false;
+        try {
+            await fs.access(readFile);
+            fileExists = true;
+        } catch {
+            fileExists = false;
+        }
+
+        if (fileExists) {
             let fileType = path.extname(file);
-            let data: string = fs.readFileSync(readFile, "utf8");
+            let data: string = await fs.readFile(readFile, "utf8");
 
             if (fileType === ".yaml") {
                 logger.info("Loading YAML: " + file);
@@ -290,7 +302,7 @@ export class OASUtils {
             if (_specCache.size >= _specCacheMaxSize) {
                 CacheUtils.evictOldest(_specCache);
             }
-            _specCache.set(file, apiSpec);
+            _specCache.set(cacheKey, apiSpec);
         }
 
         return apiSpec;

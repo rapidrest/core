@@ -19,6 +19,8 @@ class MockWorker extends EventEmitter {
     public terminate = vi.fn(async () => 0);
     public entry: string;
     public options: any;
+    // Mirrors real `worker_threads.Worker`: once "exit" has fired, `postMessage()` throws synchronously.
+    public exited = false;
     constructor(entry: string, options: any) {
         super();
         if (throwOnNextConstruct) {
@@ -27,9 +29,15 @@ class MockWorker extends EventEmitter {
         }
         this.entry = entry;
         this.options = options;
+        this.on("exit", () => {
+            this.exited = true;
+        });
         createdWorkers.push(this);
     }
     postMessage(msg: any) {
+        if (this.exited) {
+            throw new Error("Worker has already exited (ERR_WORKER_NOT_RUNNING)");
+        }
         this.messages.push(msg);
     }
 }
@@ -570,6 +578,27 @@ describe("ThreadPool Unit Tests.", () => {
             (pool.workers as any)[0] = undefined;
             expect(() => pool.send({ n: 2 })).toThrow("No available workers in the pool.");
         });
+
+        it("Skips a worker that has already exited (e.g. crashed with no restartOnExit) instead of throwing.", async () => {
+            const pool = new ThreadPool(2);
+            const promise = pool.start({ entry: "./worker.js" }, 2);
+            createdWorkers.forEach((w) => w.emit("online"));
+            await promise;
+
+            // Targets worker 1 (lastThread starts at 0, so (0+1)%2 = 1), leaving lastThread = 1.
+            pool.send({ n: 0 });
+            expect(createdWorkers[1].messages).toEqual([{ n: 0 }]);
+
+            // Worker 0 crashes on its own, with no restartOnExit - it stays in `pool.workers` (see the
+            // ThreadPool crash-leak fix), so postMessage() on it would throw if called.
+            createdWorkers[0].emit("exit", 1);
+
+            // (1+1)%2 = 0 would normally target the now-exited worker 0 - send() must skip it and continue to
+            // worker 1 instead of throwing.
+            expect(() => pool.send({ n: 1 })).not.toThrow();
+            expect(createdWorkers[0].messages).toEqual([]);
+            expect(createdWorkers[1].messages).toEqual([{ n: 0 }, { n: 1 }]);
+        });
     });
 
     it("sendAll() posts the message to every worker.", async () => {
@@ -582,6 +611,18 @@ describe("ThreadPool Unit Tests.", () => {
         for (const worker of createdWorkers) {
             expect(worker.messages).toContainEqual({ broadcast: true });
         }
+    });
+
+    it("sendAll() skips a worker that has already exited instead of throwing, and still delivers to the rest.", async () => {
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ entry: "./worker.js" }, 2);
+        createdWorkers.forEach((w) => w.emit("online"));
+        await promise;
+
+        createdWorkers[0].emit("exit", 1);
+        expect(() => pool.sendAll({ broadcast: true })).not.toThrow();
+        expect(createdWorkers[0].messages).toEqual([]);
+        expect(createdWorkers[1].messages).toContainEqual({ broadcast: true });
     });
 
     describe("sendTo()", () => {
@@ -604,5 +645,37 @@ describe("ThreadPool Unit Tests.", () => {
 
             expect(() => pool.sendTo(99, { n: 1 })).not.toThrow();
         });
+
+        it("Does nothing for a worker that has already exited instead of throwing.", async () => {
+            const pool = new ThreadPool(1);
+            const promise = pool.start({ entry: "./worker.js" }, 1);
+            createdWorkers.forEach((w) => w.emit("online"));
+            await promise;
+
+            createdWorkers[0].emit("exit", 1);
+            expect(() => pool.sendTo(0, { n: 1 })).not.toThrow();
+            expect(createdWorkers[0].messages).toEqual([]);
+        });
+    });
+
+    it("stop() does not leak a sibling worker when another has already exited (crashed with no restartOnExit) before stop() was called.", async () => {
+        // Regression test for the crash-leak: previously, stop()'s initial sendAll() would throw synchronously
+        // on the already-exited worker's postMessage() call, aborting stop() before it ever reached the
+        // Promise.all block that terminates/awaits the remaining, still-running siblings.
+        const pool = new ThreadPool(2);
+        const promise = pool.start({ entry: "./worker.js" }, 2);
+        createdWorkers.forEach((w) => w.emit("online"));
+        await promise;
+
+        createdWorkers[0].emit("exit", 1);
+        expect(pool.workers).toContain(createdWorkers[0]);
+
+        const stopPromise = pool.stop();
+        createdWorkers[1].emit("exit", 0);
+        await expect(stopPromise).resolves.toBeUndefined();
+
+        expect(createdWorkers[1].messages).toContainEqual({ type: WorkerMessageType.STOP });
+        expect(createdWorkers[1].terminate).not.toHaveBeenCalled();
+        expect(pool.workers).toHaveLength(0);
     });
 });

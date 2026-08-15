@@ -150,4 +150,5 @@ describe("Logger logFormat Tests", () => {
         const result: any = (logFormat as any).transform(info);
         expect(result[MESSAGE]).toBe("[MyClass.methodName] 2026-08-06T00:00:00.000Z info: hello");
     });
+
 });

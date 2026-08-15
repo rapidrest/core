@@ -150,6 +150,9 @@ export interface JWTUtilsConfig {
 export class JWTUtils {
     /** HMAC algorithm names that must never be permitted alongside a non-HMAC secret (see `assertSafeAlgorithm`). */
     private static readonly HMAC_ALGORITHMS = new Set(["HS256", "HS384", "HS512"]);
+    /** Maximum size, in bytes, a compressed profile is allowed to decompress to (see `finalizePayload`). Guards
+     * against a decompression bomb - a small compressed payload expanding to consume excessive memory. */
+    private static readonly MAX_DECOMPRESSED_PROFILE_BYTES = 10 * 1024 * 1024;
 
     /**
      * Returns `true` if `secret` is a form that is only ever usable as a genuine HMAC secret - a plain
@@ -277,7 +280,14 @@ export class JWTUtils {
      * @param encoded The encrypted data, as produced by `hybridEncrypt`.
      */
     private static hybridDecrypt(privateKey: string, encoded: string): string {
-        const [wrappedKeyB64, ivB64, authTagB64, ciphertext] = encoded.split(".");
+        const parts = encoded.split(".");
+        // Mirrors the length check `finishPasswordDecryption`'s caller performs for the password-based format:
+        // without it, a malformed `profile` (e.g. from an outdated/different format) throws an untyped
+        // `TypeError` out of `Buffer.from(undefined, ...)` below instead of a clear, identifiable error.
+        if (parts.length !== 4) {
+            throw new Error("Encrypted profile uses an unrecognized or outdated format and cannot be decoded.");
+        }
+        const [wrappedKeyB64, ivB64, authTagB64, ciphertext] = parts;
         const aesKey: Buffer = crypto.privateDecrypt(privateKey, Buffer.from(wrappedKeyB64, "base64"));
         const iv: Buffer = Buffer.from(ivB64, "base64");
         const authTag: Buffer = Buffer.from(authTagB64, "base64");
@@ -467,7 +477,12 @@ export class JWTUtils {
     private static finalizePayload(payload: any): JWTPayload {
         if (payload.compression === JWTUtilsCompressionMethods.ZLIB) {
             const buf: Buffer = Buffer.from(payload.profile as string, "base64");
-            payload.profile = zlib.gunzipSync(buf).toString("utf-8");
+            // Cap decompressed size against a decompression bomb (a small compressed payload expanding to consume
+            // excessive memory). Requires a validly-signed token, but costs nothing to bound given every other
+            // cache/store in this codebase is similarly size-limited.
+            payload.profile = zlib
+                .gunzipSync(buf, { maxOutputLength: JWTUtils.MAX_DECOMPRESSED_PROFILE_BYTES })
+                .toString("utf-8");
         }
         payload.profile = JSON.parse(payload.profile);
         return payload;

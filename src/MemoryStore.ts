@@ -63,6 +63,11 @@ export class MemoryStore {
                 CacheUtils.evictOldest(this.entries);
             }
         }
+        // Delete before re-inserting so a renewed entry moves to the end of the Map's iteration order. A `Map`
+        // does not reorder on `set()` of an already-present key, so without this, an actively-renewed entry stays
+        // at its original (oldest) position and `evictOldest()` would evict it ahead of a genuinely idle entry
+        // inserted later.
+        this.entries.delete(id);
         this.entries.set(id, { data, expiresAt: Date.now() + ttlSeconds * 1000 });
     }
 

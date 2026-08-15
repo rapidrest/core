@@ -88,6 +88,10 @@ export class ThreadPool {
     public readonly workers: Array<Worker>;
     /** Used to indicate that the pool is shutting down. */
     private shutdown: boolean;
+    /** Tracks workers whose "exit" event has already fired, so a dead worker left in `workers` (e.g. exited
+     * without `restartOnExit`) is never sent a message via `postMessage()`, which throws synchronously once a
+     * worker has exited. */
+    private exitedWorkers: WeakSet<Worker> = new WeakSet();
 
     /**
      * The maximum number of threads that can be created by the pool.
@@ -168,6 +172,12 @@ export class ThreadPool {
             this.dispatch("error", idx, error);
         });
         worker.on("exit", async (code) => {
+            // Mark this worker instance as exited regardless of shutdown/restart state so send()/sendAll()/
+            // sendTo() never call postMessage() on it - postMessage() throws synchronously once a worker has
+            // exited, and a restarted worker gets a brand new Worker instance anyway so marking the old one here
+            // is harmless.
+            this.exitedWorkers.add(worker);
+
             // While stop() is in progress it fires "exit" callbacks itself, using the authoritative exit code
             // returned by terminate() - which is what triggers this very event. Firing them again here would
             // invoke every registered "exit" callback twice per worker for a single stop() call.
@@ -368,12 +378,19 @@ export class ThreadPool {
         // (flushing writes, closing connections, etc.) isn't cut off by an arbitrary fixed delay.
         await Promise.all(
             this.workers.map(async (worker, idx) => {
-                const exitedOnOwn = new Promise<number>((resolve) => worker.once("exit", resolve));
-                const timedOut = sleep(ThreadPool.STOP_GRACE_PERIOD_MS).then(() => undefined);
+                let exitCode: number | undefined;
+                if (this.exitedWorkers.has(worker)) {
+                    // Already exited (e.g. crashed with no restartOnExit, before stop() was ever called) - there's
+                    // nothing to wait for or terminate.
+                    exitCode = 0;
+                } else {
+                    const exitedOnOwn = new Promise<number>((resolve) => worker.once("exit", resolve));
+                    const timedOut = sleep(ThreadPool.STOP_GRACE_PERIOD_MS).then(() => undefined);
 
-                let exitCode: number | undefined = await Promise.race([exitedOnOwn, timedOut]);
-                if (exitCode === undefined) {
-                    exitCode = await worker.terminate();
+                    exitCode = await Promise.race([exitedOnOwn, timedOut]);
+                    if (exitCode === undefined) {
+                        exitCode = await worker.terminate();
+                    }
                 }
 
                 if (listeners) {
@@ -415,7 +432,9 @@ export class ThreadPool {
         let idx = startIdx;
         do {
             const worker = this.workers[idx];
-            if (worker) {
+            // Skip a worker that has already exited (e.g. crashed with no restartOnExit) rather than trying the
+            // next one - postMessage() throws synchronously on an exited worker.
+            if (worker && !this.exitedWorkers.has(worker)) {
                 worker.postMessage(msg);
                 this.lastThread = idx;
                 return;
@@ -426,12 +445,16 @@ export class ThreadPool {
     }
 
     /**
-     * Sends the provided message to all worker threads in the pool.
+     * Sends the provided message to all worker threads in the pool. Workers that have already exited (e.g.
+     * crashed with no `restartOnExit`) are silently skipped rather than throwing, so one dead worker doesn't
+     * prevent delivery to every worker after it in the array.
      * @param msg The message to send to all workers.
      */
     public sendAll(msg: any): void {
         for (const worker of this.workers) {
-            worker.postMessage(msg);
+            if (!this.exitedWorkers.has(worker)) {
+                worker.postMessage(msg);
+            }
         }
     }
 
@@ -441,8 +464,9 @@ export class ThreadPool {
      * @param msg The message to send the next available worker thread.
      */
     public sendTo(id: number, msg: any): void {
-        if (this.workers[id]) {
-            this.workers[id].postMessage(msg);
+        const worker = this.workers[id];
+        if (worker && !this.exitedWorkers.has(worker)) {
+            worker.postMessage(msg);
         }
     }
 }

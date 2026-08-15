@@ -145,15 +145,18 @@ export class AlertUtils {
      */
     public async close(id: string, data: AlertClose = {}): Promise<boolean> {
         try {
-            if (data.note) {
-                data.note = data.note.substring(0, MAX_CHARS_NOTE);
+            // Truncate into a copy rather than the caller's object, so `data` isn't silently modified out from
+            // under a caller that reuses it after this call returns.
+            const payload: AlertClose = { ...data };
+            if (payload.note) {
+                payload.note = payload.note.substring(0, MAX_CHARS_NOTE);
             }
-            if (data.source) {
-                data.source = data.source.substring(0, MAX_CHARS_SOURCE);
+            if (payload.source) {
+                payload.source = payload.source.substring(0, MAX_CHARS_SOURCE);
             }
 
             const url: string = `${this.serviceUrl}/${encodeURIComponent(id)}/close`;
-            const response: AxiosResponse = await axios.post(url, data, {
+            const response: AxiosResponse = await axios.post(url, payload, {
                 headers: {
                     Authorization: this.auth,
                 }
@@ -199,40 +202,46 @@ export class AlertUtils {
      */
     public async send(alert: Alert, vars: any = {}, attachments?: AlertUtilsAttachmentOptions): Promise<string | null> {
         try {
+            // Substitute/truncate into a copy rather than the caller's `alert` object. `Alert` is a natural
+            // template to define once and reuse across multiple send() calls with different `vars` - mutating it
+            // in place would leave later calls with no "{{placeholder}}" left to substitute, since the first call
+            // already overwrote them with the first call's resolved values.
+            const payload: Alert = { ...alert };
+
             // Perform variable substitution on the alert's text fields *before* truncating them below. Note:
             // these fields are treated as plain data, never as a template to compile/execute, since
             // `description`/`message`/`note` frequently originate from untrusted event or exception text and
             // must not be interpretable as code.
-            alert.description = StringUtils.findAndReplace(alert.description, vars);
-            alert.message = StringUtils.findAndReplace(alert.message, vars);
-            if (alert.note) {
-                alert.note = StringUtils.findAndReplace(alert.note, vars);
+            payload.description = StringUtils.findAndReplace(payload.description, vars);
+            payload.message = StringUtils.findAndReplace(payload.message, vars);
+            if (payload.note) {
+                payload.note = StringUtils.findAndReplace(payload.note, vars);
             }
 
             // Truncate the various properties to the maximimum allowed by the most restrictive known API (e.g.
             // OpsGenie). Done *after* substitution above - substituting into an already-truncated string could
             // expand a short placeholder (e.g. a long exception message) past the API's limit, defeating the
             // truncation this is meant to guarantee.
-            alert.alias = alert.alias.substring(0, MAX_CHARS_ALIAS);
-            alert.description = alert.description.substring(0, MAX_CHARS_DESCRIPTION);
-            if (alert.entity) {
-                alert.entity = alert.entity.substring(0, MAX_CHARS_ENTITY);
+            payload.alias = payload.alias.substring(0, MAX_CHARS_ALIAS);
+            payload.description = payload.description.substring(0, MAX_CHARS_DESCRIPTION);
+            if (payload.entity) {
+                payload.entity = payload.entity.substring(0, MAX_CHARS_ENTITY);
             }
-            alert.message = alert.message.substring(0, MAX_CHARS_MESSAGE);
-            if (alert.note) {
-                alert.note = alert.note.substring(0, MAX_CHARS_NOTE);
+            payload.message = payload.message.substring(0, MAX_CHARS_MESSAGE);
+            if (payload.note) {
+                payload.note = payload.note.substring(0, MAX_CHARS_NOTE);
             }
-            alert.source = alert.source.substring(0, MAX_CHARS_SOURCE);
-            if (alert.tags) {
+            payload.source = payload.source.substring(0, MAX_CHARS_SOURCE);
+            if (payload.tags) {
                 let tags: string[] = [];
-                for (let i = 0; i < Math.min(MAX_TAGS, alert.tags.length); i++) {
-                    const tag: string = alert.tags[i];
+                for (let i = 0; i < Math.min(MAX_TAGS, payload.tags.length); i++) {
+                    const tag: string = payload.tags[i];
                     tags.push(tag.substring(0, MAX_CHARS_TAGS));
                 }
-                alert.tags = tags;
+                payload.tags = tags;
             }
 
-            let response: AxiosResponse = await axios.post(this.serviceUrl, alert, {
+            let response: AxiosResponse = await axios.post(this.serviceUrl, payload, {
                 headers: {
                     Authorization: this.auth,
                 }

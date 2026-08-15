@@ -12,6 +12,11 @@ import { UserUtils } from "./UserUtils.js";
  * @author Jean-Philippe Steinmetz
  */
 export class ObjectUtils {
+    /** Maximum object nesting depth `deleteScopedProps`/`validate` will recurse into with `recurse: true`. Guards
+     * against stack exhaustion from a pathologically deep (but otherwise valid, e.g. attacker-controlled JSON)
+     * object graph - cycle detection alone doesn't bound depth for a non-cyclic but very deep structure. */
+    private static readonly MAX_RECURSE_DEPTH = 50;
+
     /**
      * Deletes all properties from the given object(s) that the specified user does not have scope to read.
      *
@@ -28,7 +33,10 @@ export class ObjectUtils {
      * Internal implementation of `deleteScopedProps` that tracks already-visited objects so that circular
      * references (e.g. ORM-populated relations that reference each other) don't cause infinite recursion.
      */
-    private static _deleteScopedProps(obj: any, user: JWTUser | undefined, clazz: any, recurse: boolean | undefined, visited: Set<any>) {
+    private static _deleteScopedProps(obj: any, user: JWTUser | undefined, clazz: any, recurse: boolean | undefined, visited: Set<any>, depth: number = 0) {
+        if (depth > ObjectUtils.MAX_RECURSE_DEPTH) {
+            throw new Error(`Maximum object nesting depth (${ObjectUtils.MAX_RECURSE_DEPTH}) exceeded.`);
+        }
         const objs: any[] = Array.isArray(obj) ? obj : [obj];
         for (const obj of objs) {
             // Track every object visited (Set works fine with primitives too, so no `typeof` guard is needed)
@@ -54,7 +62,7 @@ export class ObjectUtils {
                 // `typeof null === "object"` in JS, and recursing into `null` would throw inside
                 // `Object.getOwnPropertyNames`.
                 if (recurse && obj[member] !== null && typeof obj[member] === "object") {
-                    ObjectUtils._deleteScopedProps(obj[member], user, undefined, recurse, visited);
+                    ObjectUtils._deleteScopedProps(obj[member], user, undefined, recurse, visited, depth + 1);
                 }
             }
         }
@@ -76,7 +84,10 @@ export class ObjectUtils {
      * Internal implementation of `validate` that tracks already-visited objects so that circular references
      * (e.g. ORM-populated relations that reference each other) don't cause infinite recursion.
      */
-    private static _validate(obj: any, clazz: any, recurse: boolean | undefined, visited: Set<any>) {
+    private static _validate(obj: any, clazz: any, recurse: boolean | undefined, visited: Set<any>, depth: number = 0) {
+        if (depth > ObjectUtils.MAX_RECURSE_DEPTH) {
+            throw new Error(`Maximum object nesting depth (${ObjectUtils.MAX_RECURSE_DEPTH}) exceeded.`);
+        }
         const objs: any[] = Array.isArray(obj) ? obj : [obj];
         for (const obj of objs) {
             // Track every object visited (Set works fine with primitives too, so no `typeof` guard is needed)
@@ -116,7 +127,7 @@ export class ObjectUtils {
                 // `typeof null === "object"` in JS, and recursing into `null` would throw inside
                 // `Object.getOwnPropertyNames`.
                 if (recurse && obj[member] !== null && typeof obj[member] === "object") {
-                    ObjectUtils._validate(obj[member], undefined, recurse, visited);
+                    ObjectUtils._validate(obj[member], undefined, recurse, visited, depth + 1);
                 }
             }
         }
