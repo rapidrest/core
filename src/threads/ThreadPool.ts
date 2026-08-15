@@ -33,6 +33,13 @@ export interface WorkerOptions {
     allowTs?: boolean;
     /** The path to the worker file. This must be set when using `ThreadWorkerEntry` as the default entry file. */
     worker?: string;
+    /**
+     * The maximum amount of time, in milliseconds, to wait for all worker threads to report readiness before
+     * `start()` rejects. Default is `ThreadPool.START_TIMEOUT_MS`. Guards against a worker whose entry script
+     * hangs during its own setup and never posts online/emits an error, which would otherwise leave the
+     * returned promise hanging forever with no way to detect or recover.
+     */
+    startupTimeoutMs?: number;
 }
 
 /**
@@ -65,6 +72,8 @@ export interface WorkerOptions {
 export class ThreadPool {
     /** The maximum amount of time, in milliseconds, `stop()` waits for a worker to exit on its own before force-terminating it. */
     private static readonly STOP_GRACE_PERIOD_MS = 5000;
+    /** The default maximum amount of time, in milliseconds, `start()` waits for all workers to report readiness before rejecting. Overridable per-call via `WorkerOptions.startupTimeoutMs`. */
+    private static readonly START_TIMEOUT_MS = 30000;
     /** The map of event types to a list of callback functions. */
     private callbacks: Map<string, Array<WorkerCallback>>;
     /** The index of the last worker that was assigned work. */
@@ -257,12 +266,26 @@ export class ThreadPool {
                     return;
                 }
                 settled = true;
+                clearTimeout(timeoutHandle);
                 this.shutdown = true;
                 for (const worker of this.workers) {
                     void worker.terminate();
                 }
                 this.workers.length = 0;
                 reject(error);
+            };
+
+            // Guard against a worker that never reports readiness and never errors either.
+            const timeoutMs = options.startupTimeoutMs ?? ThreadPool.START_TIMEOUT_MS;
+            const timeoutHandle = setTimeout(() => {
+                failStartup(new Error(`Timed out waiting for worker threads to start after ${timeoutMs}ms.`));
+            }, timeoutMs);
+            timeoutHandle.unref?.();
+
+            const succeed = () => {
+                settled = true;
+                clearTimeout(timeoutHandle);
+                resolve();
             };
 
             // Attaches the readiness-tracking listeners used to resolve/reject this start() call to `w`. Defined
@@ -283,8 +306,7 @@ export class ThreadPool {
 
                     // When all workers have finished being created resolve
                     if (numReady >= target) {
-                        settled = true;
-                        resolve();
+                        succeed();
                     }
                 });
                 // If a worker fails to start before it ever reaches readiness, reject instead of leaving the
@@ -310,8 +332,7 @@ export class ThreadPool {
 
                     // When all workers have finished being created resolve
                     if (numReady >= target) {
-                        settled = true;
-                        resolve();
+                        succeed();
                     }
                 });
             };

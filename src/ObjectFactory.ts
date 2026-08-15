@@ -40,7 +40,10 @@ export class ObjectFactory {
     /** The global application configuration object. */
     protected config: any;
 
-    /** A map for the unique name to the intance of a particular class type. */
+    /** A map for the unique name to the intance of a particular class type.
+     *
+     * Note that this map is unbounded and only shrinks via an explicit `destroy()` call.
+     */
     public readonly instances: Map<string, any> = new Map();
 
     /** The application logging utility. */
@@ -389,7 +392,9 @@ export class ObjectFactory {
             // had already been instantiated under a different name, breaking singleton reuse and circular-
             // dependency resolution. This intentionally does not apply to a bare `newInstance(Type)` call with
             // no name at all (handled below), which always creates a fresh instance.
-            const existingName: string | undefined = this.instances.has(name) ? name : this._firstByClass.get(className);
+            const existingName: string | undefined = this.instances.has(name)
+                ? name
+                : this._firstByClass.get(className);
             if (existingName && this.instances.has(existingName)) {
                 return this.instances.get(existingName);
             }

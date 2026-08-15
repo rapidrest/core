@@ -59,12 +59,20 @@ export class Event implements NewEvent {
         this.type = data.type;
         this.userId = userId;
 
-        // Copy all fields in data to this object
         const tmp: any = data as any;
-        for (let key in tmp) {
-            // We intentionally exclude only environment/origin/uid/userId from copying here. All others, including timestamp
+        const protectedFields = new Set([
+            "environment",
+            "origin",
+            "uid",
+            "userId",
+            "__proto__",
+            "constructor",
+            "prototype",
+        ]);
+        for (const key of Object.keys(tmp)) {
+            // We intentionally exclude only these fields from copying here. All others, including timestamp
             // the caller can override in order to provide more accurate information about the event.
-            if (key !== "environment" && key !== "origin" && key !== "uid" && key !== "userId") {
+            if (!protectedFields.has(key)) {
                 (this as any)[key] = tmp[key];
             }
         }

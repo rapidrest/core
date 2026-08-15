@@ -47,7 +47,14 @@ if (workerData) {
         });
         parentPort.on("close", async () => {
             logger.debug(`Stopping worker...`);
-            await worker?.stop();
+            try {
+                await worker?.stop();
+            } catch (error) {
+                parentPort?.postMessage({
+                    type: "_WorkerError",
+                    data: error,
+                });
+            }
             process.exit(0);
         });
 

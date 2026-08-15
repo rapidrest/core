@@ -3,6 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import { fileURLToPath } from "url";
 import winston from "winston";
+import { CacheUtils } from "./CacheUtils.js";
 const { format, transports } = winston;
 const { combine, timestamp, printf } = format;
 export const FILENAME = fileURLToPath(import.meta.url).replace(/\\/g, "/");
@@ -49,6 +50,12 @@ export const source = format((info: any) => {
     return info;
 });
 
+/** Maximum number of distinct `${level}:${file}` logger instances to keep cached. Each `file`-bound entry holds
+ * open file descriptors via winston's `File` transport, so an unbounded cache would leak descriptors indefinitely
+ * for any caller that varies `file` per call (e.g. a per-request or per-session name) instead of reusing a fixed
+ * small set of names. */
+const MAX_CACHED_LOGGERS = 100;
+
 const _loggerCache: Map<string, any> = new Map();
 
 /**
@@ -75,6 +82,14 @@ export const Logger: any = function(level: string = "debug", file: string | unde
         transports: transport,
     });
 
+    if (_loggerCache.size >= MAX_CACHED_LOGGERS) {
+        const oldestKey = _loggerCache.keys().next().value;
+        const oldest = oldestKey !== undefined ? _loggerCache.get(oldestKey) : undefined;
+        CacheUtils.evictOldest(_loggerCache);
+        // Close the evicted logger's transports so its file descriptors are actually released, not just
+        // dropped from the cache while still held open by winston.
+        oldest?.close?.();
+    }
     _loggerCache.set(cacheKey, logger);
     return logger;
 };

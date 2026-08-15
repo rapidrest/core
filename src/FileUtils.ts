@@ -135,6 +135,7 @@ const logger = Logger();
         overwrite: boolean = false,
         rootDir?: string
     ): Promise<void> {
+        variables = variables ?? {};
         let srcPathFull: string = path.resolve(srcPath);
 
         // Containment is checked *before* existence: assertContained() already tolerates a not-yet-existing
@@ -192,6 +193,7 @@ const logger = Logger();
         if (typeof overwrite !== "boolean") {
             throw new TypeError(`copyBinaryFile: "overwrite" must be a boolean, got ${typeof overwrite}.`);
         }
+        variables = variables ?? {};
 
         let srcPathFull: string = path.resolve(srcPath);
 
@@ -252,6 +254,7 @@ const logger = Logger();
         force: boolean = false,
         rootDir?: string
     ): Promise<void> {
+        vars = vars ?? {};
         let templatePath = path.resolve(srcPath);
 
         if (rootDir) {

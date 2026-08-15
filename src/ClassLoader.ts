@@ -121,7 +121,7 @@ export class ClassLoader {
                 if (clazz === null || (typeof clazz !== "function" && typeof clazz !== "object")) {
                     continue;
                 }
-                let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? fileName.split(".")[0] : name}`;
+                let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? path.basename(fileName, path.extname(fileName)) : name}`;
                 clazz.fqn = fqn;
                 this.classes.set(fqn, clazz);
             }
