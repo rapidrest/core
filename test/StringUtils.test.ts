@@ -64,6 +64,15 @@ describe("StringUtils Tests.", () => {
         expect(result).toBe("The quick brown  jumped over the  lazy dog.");
     });
 
+    it("findAndReplace leaves a literal '{{}}' untouched when no variables are given.", () => {
+        // With an empty `variables` map the combined regex's alternation is empty, reducing the pattern to
+        // literally `\{\{()\}\}` - which still matches a literal "{{}}" in `contents` with an empty capture
+        // group. Since "" is never a key in `resolved` (there are no keys at all), this exercises the `?? _full`
+        // fallback that leaves an unmatched placeholder untouched instead of throwing or substituting undefined.
+        let result = StringUtils.findAndReplace("Hello {{}} World", {});
+        expect(result).toBe("Hello {{}} World");
+    });
+
     it("replaceAll returns successfully.", () => {
         let result = StringUtils.replaceAll("/my/{uid}/child/{childid}", new RegExp("\\{([^\\}]+)\\}"), ":");
         expect(result).toBe("/my/:uid/child/:childid");

@@ -10,6 +10,9 @@ import os from "os";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 let createdWorkers: MockWorker[] = [];
+// When set, the *next* MockWorker construction throws synchronously instead of succeeding, simulating a
+// `new Worker(...)` failure (e.g. non-cloneable workerData, thread-limit/OOM) for restartOnExit tests.
+let throwOnNextConstruct = false;
 
 class MockWorker extends EventEmitter {
     public messages: any[] = [];
@@ -18,6 +21,10 @@ class MockWorker extends EventEmitter {
     public options: any;
     constructor(entry: string, options: any) {
         super();
+        if (throwOnNextConstruct) {
+            throwOnNextConstruct = false;
+            throw new Error("Simulated worker construction failure");
+        }
         this.entry = entry;
         this.options = options;
         createdWorkers.push(this);
@@ -36,6 +43,7 @@ const { WorkerMessageType } = await import("../src/threads/ThreadWorker.js");
 
 beforeEach(() => {
     createdWorkers = [];
+    throwOnNextConstruct = false;
 });
 
 afterEach(() => {
@@ -223,6 +231,42 @@ describe("ThreadPool Unit Tests.", () => {
         await expect(promise).rejects.toThrow("crashed during startup");
     });
 
+    it("Rejects start() after startupTimeoutMs elapses if no worker ever reports readiness or errors.", async () => {
+        vi.useFakeTimers();
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js", startupTimeoutMs: 1000 }, 1);
+
+        let rejected = false;
+        let rejectionError: any;
+        promise.catch((err) => {
+            rejected = true;
+            rejectionError = err;
+        });
+
+        // Not yet timed out.
+        await vi.advanceTimersByTimeAsync(999);
+        expect(rejected).toBe(false);
+
+        // The timeout fires, rejecting start() and terminating the worker that never reported readiness.
+        await vi.advanceTimersByTimeAsync(1);
+        expect(rejected).toBe(true);
+        expect(rejectionError.message).toBe("Timed out waiting for worker threads to start after 1000ms.");
+        expect(createdWorkers[0].terminate).toHaveBeenCalled();
+    });
+
+    it("Clears the startup timeout once start() succeeds, so it never fires afterward.", async () => {
+        vi.useFakeTimers();
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js", startupTimeoutMs: 1000 }, 1);
+        createdWorkers[0].emit("online");
+        await promise;
+
+        // If the timeout weren't cleared on success, advancing past it would force-terminate the now-healthy
+        // worker out from under the caller.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(createdWorkers[0].terminate).not.toHaveBeenCalled();
+    });
+
     it("Terminates every worker created during a failed multi-worker start() instead of leaking siblings.", async () => {
         const pool = new ThreadPool(2);
         const promise = pool.start({ entry: "./worker.js" }, 2);
@@ -334,6 +378,28 @@ describe("ThreadPool Unit Tests.", () => {
 
         expect(createdWorkers).toHaveLength(2);
         expect(pool.workers[0]).toBe(createdWorkers[1]);
+    });
+
+    it("Reports an 'error' event instead of throwing when restartOnExit's worker recreation fails synchronously.", async () => {
+        const pool = new ThreadPool(1);
+        const promise = pool.start({ entry: "./worker.js", restartOnExit: true }, 1);
+        createdWorkers[0].emit("online");
+        await promise;
+
+        const errors: Array<[number, any]> = [];
+        pool.on("error", (id: number, err: any) => errors.push([id, err]));
+
+        // Priming the next MockWorker construction to throw simulates createWorker() failing synchronously
+        // during the restart triggered by this exit - the failure must be reported via the "error" listeners
+        // rather than escaping as an unhandled promise rejection from the async "exit" handler.
+        throwOnNextConstruct = true;
+        createdWorkers[0].emit("exit", 1);
+
+        expect(errors).toHaveLength(1);
+        expect(errors[0][0]).toBe(0);
+        expect(errors[0][1].message).toBe("Simulated worker construction failure");
+        // No replacement worker was created, so the pool must not have grown.
+        expect(createdWorkers).toHaveLength(1);
     });
 
     it("Does not restart on exit once the pool has been stopped.", async () => {

@@ -224,6 +224,15 @@ describe("TelemetryUtils Tests.", () => {
         expect(() => EventUtils.off("NeverRegisteredType", () => undefined)).not.toThrow();
     });
 
+    it("off does nothing when the type is registered but the given callback reference isn't among its listeners.", async () => {
+        await EventUtils.init(config, undefined, authToken);
+        const registered = () => undefined;
+        const neverRegistered = () => undefined;
+        EventUtils.on("PartiallyRegisteredEvent", registered);
+        expect(() => EventUtils.off("PartiallyRegisteredEvent", neverRegistered)).not.toThrow();
+        EventUtils.off("PartiallyRegisteredEvent", registered);
+    });
+
     it("on allows registering multiple listeners for an already-registered event type.", async () => {
         await EventUtils.init(config, undefined, authToken);
         const data: any = { prop1: "a" };

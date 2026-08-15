@@ -162,6 +162,12 @@ describe("FileUtils Tests", () => {
         expect(fs.readFileSync("tests-fileutils/empty.copy.txt", "utf8")).toBe("");
     });
 
+    it("copyFile treats an explicit null for variables the same as omitting it.", async () => {
+        fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
+        await FileUtils.copyFile("tests-fileutils/test.txt", "tests-fileutils/test.copy-null-vars.txt", null as any);
+        expect(fs.readFileSync("tests-fileutils/test.copy-null-vars.txt", "utf8")).toBe("This is a test.");
+    });
+
     it("copyBinaryFile succeeds.", async () => {
         fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
         expect(fs.existsSync("tests-fileutils/test.txt")).toBe(true);
@@ -225,6 +231,16 @@ describe("FileUtils Tests", () => {
             expect(err.message).not.toContain("already exists");
             expect(err.code).not.toBe("EEXIST");
         }
+    });
+
+    it("copyBinaryFile treats an explicit null for variables the same as omitting it.", async () => {
+        fs.writeFileSync("tests-fileutils/test.txt", "This is a test.");
+        await FileUtils.copyBinaryFile(
+            "tests-fileutils/test.txt",
+            "tests-fileutils/test.bincopy-null-vars.txt",
+            null as any,
+        );
+        expect(fs.readFileSync("tests-fileutils/test.bincopy-null-vars.txt", "utf8")).toBe("This is a test.");
     });
 
     it("copyBinaryFile throws when the source file does not exist.", async () => {
@@ -295,6 +311,20 @@ describe("FileUtils Tests", () => {
             ["bak"],
             ["bin"],
             true
+        );
+        expect(fs.existsSync("tests-fileutils-copydir-dest/test.txt")).toBe(true);
+    });
+
+    it("copyDirectory treats an explicit null for vars the same as omitting it.", async () => {
+        rimraf.sync("tests-fileutils-copydir-src");
+        rimraf.sync("tests-fileutils-copydir-dest");
+        fs.mkdirSync("tests-fileutils-copydir-src", { recursive: true });
+        fs.writeFileSync("tests-fileutils-copydir-src/test.txt", "This is a test.");
+
+        await FileUtils.copyDirectory(
+            "tests-fileutils-copydir-src",
+            "tests-fileutils-copydir-dest",
+            null as any,
         );
         expect(fs.existsSync("tests-fileutils-copydir-dest/test.txt")).toBe(true);
     });

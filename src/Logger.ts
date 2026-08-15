@@ -83,8 +83,9 @@ export const Logger: any = function(level: string = "debug", file: string | unde
     });
 
     if (_loggerCache.size >= MAX_CACHED_LOGGERS) {
-        const oldestKey = _loggerCache.keys().next().value;
-        const oldest = oldestKey !== undefined ? _loggerCache.get(oldestKey) : undefined;
+        // Non-null: the size check above guarantees the cache is non-empty, so `.next()` always yields a real key.
+        const oldestKey = _loggerCache.keys().next().value!;
+        const oldest = _loggerCache.get(oldestKey);
         CacheUtils.evictOldest(_loggerCache);
         // Close the evicted logger's transports so its file descriptors are actually released, not just
         // dropped from the cache while still held open by winston.

@@ -44,6 +44,35 @@ describe("Logger Tests", () => {
         const logger = Logger();
         expect(logger).toBeDefined();
     });
+
+    it("Evicts the oldest cached logger once the cache exceeds its maximum size.", () => {
+        const baseName = "test-logger-eviction";
+        const names: string[] = [];
+        let firstLogger: any;
+        try {
+            // The cache's max size is 100. Creating 101 distinct file-bound loggers guarantees at least one
+            // eviction occurs regardless of how many loggers earlier tests in this file already cached, and
+            // that the eviction reaches all the way back to the very first one created here.
+            for (let i = 0; i <= 100; i++) {
+                const name = `${baseName}-${i}`;
+                names.push(name);
+                const logger = Logger("debug", name);
+                if (i === 0) {
+                    firstLogger = logger;
+                }
+            }
+
+            // Having been evicted, requesting it again must create a brand new instance rather than returning
+            // the original (now-stale) cached one.
+            const reloaded = Logger("debug", names[0]);
+            expect(reloaded).not.toBe(firstLogger);
+        } finally {
+            for (const name of names) {
+                fs.rmSync(`${name}.log`, { force: true });
+                fs.rmSync(`${name}error.log`, { force: true });
+            }
+        }
+    });
 });
 
 describe("Logger source() format Tests", () => {

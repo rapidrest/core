@@ -67,6 +67,13 @@ export default class MyClassWithPrimitive {
 export const VERSION = "1.0.0";
         `;
 
+        const tsMultiDotFileName: string = `
+export default class MultiDotDefault {
+    contructor() {
+    }
+}
+        `;
+
         await mkdirp("./test/test-classes/com/company/javascript");
         await mkdirp("./test/test-classes/com/company/typescript");
         fs.writeFileSync("./test/test-classes/dummy.txt", "This is a test");
@@ -79,6 +86,7 @@ export const VERSION = "1.0.0";
         fs.writeFileSync("./test/test-classes/com/company/typescript/MultipleExports.ts", tsMultipleExports);
         fs.writeFileSync("./test/test-classes/com/company/typescript/PrimitiveExport.ts", tsPrimitiveExport);
         fs.writeFileSync("./test/test-classes/com/company/typescript/dummy.txt", "This is a test");
+        fs.writeFileSync("./test/test-classes/com/company/typescript/MultiDot.entity.ts", tsMultiDotFileName);
     });
 
     afterAll(() => {
@@ -112,6 +120,15 @@ export const VERSION = "1.0.0";
         expect(loader.getClass("com.company.typescript.VERSION")).toBeUndefined();
         // Sibling classes in the same directory must still load successfully.
         expect(loader.getClass("com.company.typescript.MyClass")).toBeDefined();
+    });
+
+    it("Registers a default export's fqn using only the file extension, not the first dot in a multi-dot filename.", async () => {
+        // Regression test: `fileName.split(".")[0]` would truncate "MultiDot.entity.ts" at the first dot,
+        // registering the default export as "MultiDot" instead of "MultiDot.entity".
+        let loader: ClassLoader = new ClassLoader("./test/test-classes");
+        await loader.load();
+        expect(loader.getClass("com.company.typescript.MultiDot.entity")).toBeDefined();
+        expect(loader.getClass("com.company.typescript.MultiDot")).toBeUndefined();
     });
 
     it("Can load JavaScript classes only.", async () => {
