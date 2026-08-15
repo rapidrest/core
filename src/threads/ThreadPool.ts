@@ -169,9 +169,20 @@ export class ThreadPool {
             // Restart worker thread
             if (options?.restartOnExit && !this.shutdown) {
                 worker.removeAllListeners();
-                const newWorker: Worker = this.createWorker(idx, options, onRestart);
-                this.workers[idx] = newWorker;
-                onRestart?.(newWorker);
+                // createWorker() calls `new Worker(...)`, which can throw synchronously (e.g. non-cloneable
+                // workerData, thread-limit/OOM errors) - especially likely in a crash-loop scenario, which is
+                // exactly when restartOnExit is most active. This listener is itself async, and Node does not
+                // attach a rejection handler to an EventEmitter listener's returned promise, so an uncaught throw
+                // here would become an unhandled rejection capable of crashing the whole host process. Routing
+                // the failure to "error" listeners instead keeps it recoverable, consistent with how every other
+                // worker failure in this file is reported.
+                try {
+                    const newWorker: Worker = this.createWorker(idx, options, onRestart);
+                    this.workers[idx] = newWorker;
+                    onRestart?.(newWorker);
+                } catch (error) {
+                    this.dispatch("error", idx, error);
+                }
             }
         });
         worker.on("message", (msg: WorkerMessage) => {

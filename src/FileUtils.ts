@@ -14,10 +14,24 @@ const logger = Logger();
  */
  export class FileUtils {
     /**
+     * Resolves via `fs.promises.access` rather than the removed `fs.existsSync`, so callers doing filesystem
+     * checks don't block the event loop while walking a directory tree (e.g. `assertContained`'s ancestor walk,
+     * or a `copyDirectory` recursion over many entries).
+     */
+    private static async _exists(target: string): Promise<boolean> {
+        try {
+            await fs.promises.access(target);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
      * Throws an error if `target` is not contained within `rootDir`. Used to prevent path traversal (e.g. `../`)
      * from escaping an intended root when a caller opts in by providing `rootDir`.
      *
-     * Both `rootDir` and the longest already-existing ancestor of `target` are resolved via `fs.realpathSync`
+     * Both `rootDir` and the longest already-existing ancestor of `target` are resolved via `fs.promises.realpath`
      * before the containment check, not just `path.resolve`. Without this, a symlink placed anywhere on disk
      * within `target`'s existing ancestry (including `target` itself) that points outside `rootDir` would pass
      * a purely lexical check, yet `fs.existsSync`/`fs.writeFileSync`/`fs.readFileSync` etc. would transparently
@@ -30,12 +44,12 @@ const logger = Logger();
      * original `target` - for the actual filesystem operation, so a symlink swapped in after this check can't
      * reintroduce the gap it closes.
      */
-    public static assertContained(rootDir: string, target: string): string {
-        const rootReal = fs.realpathSync(path.resolve(rootDir));
+    public static async assertContained(rootDir: string, target: string): Promise<string> {
+        const rootReal = await fs.promises.realpath(path.resolve(rootDir));
 
         let existingPart = path.resolve(target);
         const remainder: string[] = [];
-        while (!fs.existsSync(existingPart)) {
+        while (!(await FileUtils._exists(existingPart))) {
             const parent = path.dirname(existingPart);
             // `path.dirname()` of a filesystem root returns that same root, which is the only way this loop
             // could otherwise become infinite. Not practically reachable in a real filesystem (the root itself
@@ -45,7 +59,7 @@ const logger = Logger();
             remainder.unshift(path.basename(existingPart));
             existingPart = parent;
         }
-        const existingReal = fs.realpathSync(existingPart);
+        const existingReal = await fs.promises.realpath(existingPart);
         const targetReal = remainder.length > 0 ? path.join(existingReal, ...remainder) : existingReal;
 
         const rel = path.relative(rootReal, targetReal);
@@ -78,13 +92,13 @@ const logger = Logger();
         let outPathFull = path.resolve(outPath);
 
         if (rootDir) {
-            FileUtils.assertContained(rootDir, srcPathFull);
-            outPathFull = FileUtils.assertContained(rootDir, outPathFull);
+            await FileUtils.assertContained(rootDir, srcPathFull);
+            outPathFull = await FileUtils.assertContained(rootDir, outPathFull);
         }
 
         // Make sure the path leading to the final destination exists
         let outDirPath = path.dirname(outPathFull);
-        if (!fs.existsSync(outDirPath)) {
+        if (!(await FileUtils._exists(outDirPath))) {
             await mkdirp(outDirPath);
         }
 
@@ -94,7 +108,7 @@ const logger = Logger();
         // other's output.
         logger.info("Writing: " + outPathFull);
         try {
-            fs.writeFileSync(outPathFull, contents, overwrite ? undefined : { flag: "wx" });
+            await fs.promises.writeFile(outPathFull, contents, overwrite ? undefined : { flag: "wx" });
         } catch (err: any) {
             if (!overwrite && err?.code === "EEXIST") {
                 throw new Error(`File already exists at "${outPathFull}". Pass overwrite=true to replace it.`);
@@ -130,14 +144,14 @@ const logger = Logger();
         if (rootDir) {
             // Re-resolved via the realpath'd return value so the subsequent read follows the *validated* path
             // rather than the original (potentially symlinked) one.
-            srcPathFull = FileUtils.assertContained(rootDir, srcPathFull);
+            srcPathFull = await FileUtils.assertContained(rootDir, srcPathFull);
         }
 
-        if (!fs.existsSync(srcPathFull)) {
+        if (!(await FileUtils._exists(srcPathFull))) {
             throw new Error("File does not exist: " + srcPathFull);
         }
 
-        let template = fs.readFileSync(srcPathFull, "utf-8");
+        let template = await fs.promises.readFile(srcPathFull, "utf-8");
         let output = StringUtils.findAndReplace(template, variables);
         let outPathFinal = path.resolve(StringUtils.findAndReplace(outPath, variables));
         logger.info("Writing: " + outPathFinal);
@@ -181,25 +195,25 @@ const logger = Logger();
 
         let srcPathFull: string = path.resolve(srcPath);
 
-        if (!fs.existsSync(srcPathFull)) {
+        if (!(await FileUtils._exists(srcPathFull))) {
             throw new Error("File does not exist: " + srcPathFull);
         }
 
         if (rootDir) {
-            srcPathFull = FileUtils.assertContained(rootDir, srcPathFull);
+            srcPathFull = await FileUtils.assertContained(rootDir, srcPathFull);
         }
 
         let outPathFinal: string = path.resolve(StringUtils.findAndReplace(outPath, variables));
 
         if (rootDir) {
-            outPathFinal = FileUtils.assertContained(rootDir, outPathFinal);
+            outPathFinal = await FileUtils.assertContained(rootDir, outPathFinal);
         }
 
         // Make sure the path leading to the final (template-substituted) destination exists. Must be derived from
         // `outPathFinal`, not the raw `outPath`, otherwise the created directory can differ from the one actually
         // written to whenever `outPath`'s directory itself contains template variables.
         let outDirPath = path.dirname(outPathFinal);
-        if (!fs.existsSync(outDirPath)) {
+        if (!(await FileUtils._exists(outDirPath))) {
             await mkdirp(outDirPath);
         }
 
@@ -207,7 +221,7 @@ const logger = Logger();
         // `fs.existsSync()` check followed by an unconditional copy would otherwise leave a window where two
         // concurrent calls both see no existing file and one silently clobbers the other's output.
         try {
-            fs.copyFileSync(srcPathFull, outPathFinal, overwrite ? 0 : fs.constants.COPYFILE_EXCL);
+            await fs.promises.copyFile(srcPathFull, outPathFinal, overwrite ? 0 : fs.constants.COPYFILE_EXCL);
         } catch (err: any) {
             if (!overwrite && err?.code === "EEXIST") {
                 throw new Error(`File already exists at "${outPathFinal}". Pass overwrite=true to replace it.`);
@@ -241,10 +255,10 @@ const logger = Logger();
         let templatePath = path.resolve(srcPath);
 
         if (rootDir) {
-            templatePath = FileUtils.assertContained(rootDir, templatePath);
+            templatePath = await FileUtils.assertContained(rootDir, templatePath);
         }
 
-        let files = fs.readdirSync(templatePath, { withFileTypes: true });
+        let files = await fs.promises.readdir(templatePath, { withFileTypes: true });
         // Copied concurrently via `Promise.all` rather than a sequentially-awaited loop, since sibling entries
         // in the same directory are independent of one another. `Promise.all` still `await`s every entry before
         // `copyDirectory` itself resolves and still propagates the first rejection to the caller, so this keeps
@@ -261,14 +275,14 @@ const logger = Logger();
                     let destPath = StringUtils.findAndReplace(path.join(outPath, file.name), vars);
 
                     if (rootDir) {
-                        destPath = FileUtils.assertContained(rootDir, destPath);
+                        destPath = await FileUtils.assertContained(rootDir, destPath);
                     }
 
                     if (file.isDirectory()) {
-                        if (!fs.existsSync(destPath)) {
+                        if (!(await FileUtils._exists(destPath))) {
                             // Recursive: `outPath` itself may not exist yet either, e.g. when directory entries are
                             // processed ahead of any file entry that would otherwise implicitly create it via mkdirp.
-                            fs.mkdirSync(destPath, { recursive: true });
+                            await fs.promises.mkdir(destPath, { recursive: true });
                         }
                         await FileUtils.copyDirectory(
                             path.join(templatePath, file.name),

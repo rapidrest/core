@@ -142,7 +142,7 @@ export class ClassLoader {
         // symlink anywhere in its path - can't escape rootDir and dynamically import/execute arbitrary modules
         // found elsewhere on disk. `fqp` is reassigned to the validated realpath so `readdir()` below always
         // reads through the path that was actually checked.
-        let fqp: string = FileUtils.assertContained(this.rootDir, path.resolve(path.join(this.rootDir, dir)));
+        let fqp: string = await FileUtils.assertContained(this.rootDir, path.resolve(path.join(this.rootDir, dir)));
 
         let files: fs.Dirent[] = await fs.promises.readdir(fqp, { withFileTypes: true });
         // Processed concurrently via `Promise.all` since sibling entries in a directory are independent of one
@@ -165,7 +165,7 @@ export class ClassLoader {
                 // already been confirmed to stay within rootDir. Using the returned (realpath'd) value for the
                 // actual `import()` below, rather than re-deriving the path afterwards, avoids re-opening the
                 // symlink-swap TOCTOU window the check just closed.
-                let fullpath: string = FileUtils.assertContained(this.rootDir, path.join(fqp, file.name));
+                let fullpath: string = await FileUtils.assertContained(this.rootDir, path.join(fqp, file.name));
 
                 let extension = path.extname(file.name);
                 if (!extension) {

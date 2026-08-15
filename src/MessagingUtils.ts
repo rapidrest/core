@@ -92,6 +92,11 @@ export class MessagingUtils {
     /** Cache of compiled Handlebars delegates keyed by "<templateName>:<field>". */
     private _compiledTemplates: Map<string, handlebars.TemplateDelegate> = new Map();
 
+    /** Source string each `_compiledTemplates` entry was compiled from, keyed the same way. Lets `loadTemplate()`
+     * detect when an existing field's value has changed (e.g. a live config reload editing a template's subject/
+     * text/html) and recompile, instead of only ever compiling a field once and rendering stale content forever. */
+    private _compiledTemplateSources: Map<string, string> = new Map();
+
     /** Names of templates already compiled into `_compiledTemplates` for this instance. See `loadTemplate()`. */
     private _loadedTemplates: Set<string> = new Set();
 
@@ -194,11 +199,14 @@ export class MessagingUtils {
             this._loadedTemplates.add(name);
         }
 
-        // Compile and cache a Handlebars delegate for each field that's currently present but not yet compiled
-        // for *this instance*, rather than gating compilation on the one-time "have we ever loaded this
-        // template" check above. Without this, a field added to the template config after the first load (e.g.
-        // a live config reload that only sets `subject` once other fields already exist) would never get
-        // compiled, leaving sendEmail()/sendSlack()/sendSMS() to call an `undefined` delegate and throw.
+        // Compile and cache a Handlebars delegate for each field that's currently present and whose value has
+        // changed since it was last compiled for *this instance*, rather than gating compilation on the one-time
+        // "have we ever loaded this template" check above or on "have we ever compiled this field." Without
+        // comparing against the previously-compiled source, a field added after the first load (e.g. a live
+        // config reload that only sets `subject` once other fields already exist) would never get compiled,
+        // leaving sendEmail()/sendSlack()/sendSMS() to call an `undefined` delegate and throw - and a field whose
+        // *value* was edited in place (e.g. an admin updates an existing subject/text/html) would keep rendering
+        // the stale delegate forever.
         const fields: Array<[string, string | undefined]> = [
             ["text", tplConfig.text],
             ["html", tplConfig.html],
@@ -208,8 +216,9 @@ export class MessagingUtils {
         ];
         for (const [field, value] of fields) {
             const cacheKey = `${name}:${field}`;
-            if (value && !this._compiledTemplates.has(cacheKey)) {
+            if (value && this._compiledTemplateSources.get(cacheKey) !== value) {
                 this._compiledTemplates.set(cacheKey, handlebars.compile(value));
+                this._compiledTemplateSources.set(cacheKey, value);
             }
         }
 

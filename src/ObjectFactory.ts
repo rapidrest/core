@@ -256,17 +256,11 @@ export class ObjectFactory {
         }
 
         if (promises.length > 0) {
-            // Create a wrapper that waits for all init promises to finish before returning
-            return new Promise(async (resolve, reject) => {
-                try {
-                    for (const promise of promises) {
-                        await promise;
-                    }
-                } catch (err) {
-                    reject(err);
-                }
-                resolve(obj);
-            });
+            // Promise.all() attaches a handler to every entry in `promises` up front (synchronously), so even
+            // though it settles as soon as the first one rejects, none of the others are ever left unobserved.
+            // A sequential for-await loop, by contrast, stops awaiting as soon as one throws, which can orphan a
+            // still-pending later @Init promise's eventual rejection as an unhandled rejection.
+            return Promise.all(promises).then(() => obj);
         } else {
             return obj;
         }

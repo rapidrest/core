@@ -226,7 +226,7 @@ export class OASUtils {
                 }
                 for (const dir of options.allowedDirs) {
                     try {
-                        resolvedFile = FileUtils.assertContained(dir, path.resolve(file));
+                        resolvedFile = await FileUtils.assertContained(dir, path.resolve(file));
                         break;
                     } catch {
                         // Not contained within this particular allowed directory - try the next one.
