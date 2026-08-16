@@ -67,7 +67,13 @@ const _loggerCache: Map<string, any> = new Map();
 export const Logger: any = function(level: string = "debug", file: string | undefined = undefined) {
     const cacheKey = `${level}:${file ?? ""}`;
     if (_loggerCache.has(cacheKey)) {
-        return _loggerCache.get(cacheKey);
+        const cached = _loggerCache.get(cacheKey);
+        // Move to the end of the Map's iteration order so a frequently-reused logger isn't evicted (and its
+        // file transport closed, possibly mid-write) ahead of one that's actually gone idle - Map.set() on an
+        // already-present key doesn't reorder it by itself.
+        _loggerCache.delete(cacheKey);
+        _loggerCache.set(cacheKey, cached);
+        return cached;
     }
 
     const transport: any[] = [new transports.Console()];

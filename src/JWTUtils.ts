@@ -211,15 +211,27 @@ export class JWTUtils {
     }
 
     /**
-     * Generates a new JWT token for the given config and user object. The user object must be a valid RapidREST
-     * user.
-     *
-     * @param config The JWT configuration to use when generating the token.
-     * @param user The user to encode into the token's payload.
+     * Returns the key length, in bytes, required by `algorithm` (e.g. 32 for `aes-256-cbc`, 24 for
+     * `aes-192-cbc`), so the scrypt-derived key `deriveKey`/`deriveKeySync` produce always matches whatever
+     * cipher `passwordOptions.algorithm` actually names, instead of a length hard-coded for one specific
+     * algorithm. Throws a clear error for an algorithm Node's `crypto` module doesn't recognize, rather than
+     * letting `createCipheriv`/`createDecipheriv` fail later with an opaque "Invalid key length".
      */
-    private static deriveKey(password: string, salt: Buffer): Promise<Buffer> {
+    private static resolveKeyLength(algorithm: string): number {
+        const info = crypto.getCipherInfo(algorithm);
+        if (!info?.keyLength) {
+            throw new Error(`Unknown or unsupported cipher algorithm: "${algorithm}".`);
+        }
+        return info.keyLength;
+    }
+
+    /**
+     * Derives a symmetric encryption key from `password`/`salt` for use with `algorithm`.
+     */
+    private static deriveKey(password: string, salt: Buffer, algorithm: string): Promise<Buffer> {
+        const keyLength = JWTUtils.resolveKeyLength(algorithm);
         return new Promise((resolve, reject) =>
-            crypto.scrypt(password, salt, 24, (err, key) => (err ? reject(err) : resolve(key))),
+            crypto.scrypt(password, salt, keyLength, (err, key) => (err ? reject(err) : resolve(key))),
         );
     }
 
@@ -228,12 +240,9 @@ export class JWTUtils {
      * derivation (deliberately CPU-expensive, typically tens of milliseconds) - `createTokenSync`/
      * `decodeTokenSync` should therefore be avoided on a request-handling path when password-based payload
      * encryption is configured; prefer `createToken`/`decodeToken` there.
-     *
-     * @param config The JWT configuration to use when generating the token.
-     * @param user The user to encode into the token's payload.
      */
-    private static deriveKeySync(password: string, salt: Buffer): Buffer {
-        return crypto.scryptSync(password, salt, 24);
+    private static deriveKeySync(password: string, salt: Buffer, algorithm: string): Buffer {
+        return crypto.scryptSync(password, salt, JWTUtils.resolveKeyLength(algorithm));
     }
 
     /**
@@ -371,7 +380,7 @@ export class JWTUtils {
         const { payload, passwordOptions } = JWTUtils.preparePayload(config, user, data);
         if (passwordOptions) {
             const salt = crypto.randomBytes(16);
-            const key: Buffer = await JWTUtils.deriveKey(passwordOptions.password, salt);
+            const key: Buffer = await JWTUtils.deriveKey(passwordOptions.password, salt, passwordOptions.algorithm);
             JWTUtils.finishPasswordEncryption(payload, passwordOptions, key, salt);
         }
 
@@ -388,7 +397,7 @@ export class JWTUtils {
         const { payload, passwordOptions } = JWTUtils.preparePayload(config, user, data);
         if (passwordOptions) {
             const salt = crypto.randomBytes(16);
-            const key: Buffer = JWTUtils.deriveKeySync(passwordOptions.password, salt);
+            const key: Buffer = JWTUtils.deriveKeySync(passwordOptions.password, salt, passwordOptions.algorithm);
             JWTUtils.finishPasswordEncryption(payload, passwordOptions, key, salt);
         }
 
@@ -499,7 +508,7 @@ export class JWTUtils {
     public static async decodeToken(config: JWTUtilsConfig, token: string): Promise<JWTPayload> {
         const { payload, passwordOptions, salt, authTagB64, encryptedProfile } = JWTUtils.preDecode(config, token);
         if (passwordOptions && salt && encryptedProfile !== undefined) {
-            const key: Buffer = await JWTUtils.deriveKey(passwordOptions.password, salt);
+            const key: Buffer = await JWTUtils.deriveKey(passwordOptions.password, salt, passwordOptions.algorithm);
             JWTUtils.finishPasswordDecryption(payload, passwordOptions, key, encryptedProfile, authTagB64);
         }
         return JWTUtils.finalizePayload(payload);
@@ -517,7 +526,7 @@ export class JWTUtils {
     public static decodeTokenSync(config: JWTUtilsConfig, token: string): JWTPayload {
         const { payload, passwordOptions, salt, authTagB64, encryptedProfile } = JWTUtils.preDecode(config, token);
         if (passwordOptions && salt && encryptedProfile !== undefined) {
-            const key: Buffer = JWTUtils.deriveKeySync(passwordOptions.password, salt);
+            const key: Buffer = JWTUtils.deriveKeySync(passwordOptions.password, salt, passwordOptions.algorithm);
             JWTUtils.finishPasswordDecryption(payload, passwordOptions, key, encryptedProfile, authTagB64);
         }
         return JWTUtils.finalizePayload(payload);

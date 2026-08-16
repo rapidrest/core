@@ -3,7 +3,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 import handlebars from "handlebars";
 import { Config, Init, Logger } from "./decorators/ObjectDecorators.js";
-import fs from "fs";
+import fs from "fs/promises";
+import { FileUtils } from "./FileUtils.js";
 
 export interface OriginSettings {
     email: string;
@@ -161,7 +162,11 @@ export class MessagingUtils {
                 }
                 // `twilio`'s dynamic import only exposes a callable `default` export; the module namespace
                 // object itself is not callable (unlike e.g. nodemailer, which re-exports its named members).
-                this.twilio = twilio.default(this.twilioConfig.accountSid, this.twilioConfig.token, this.twilioConfig.options);
+                this.twilio = twilio.default(
+                    this.twilioConfig.accountSid,
+                    this.twilioConfig.token,
+                    this.twilioConfig.options,
+                );
             } catch (error) {
                 this.logger?.error("Unable to setup twilio notifications");
                 this.logger?.debug(error);
@@ -173,7 +178,7 @@ export class MessagingUtils {
      * Loads the template with the given name and returns its contents as a string.
      * @param name The name of the template to load.
      */
-    public loadTemplate(name: string): Template {
+    public async loadTemplate(name: string): Promise<Template> {
         if (!this.templates[name]) {
             throw new Error(`No template found with name ${name}`);
         }
@@ -185,14 +190,16 @@ export class MessagingUtils {
         // `Template` object, so a second instance bound to the same config could otherwise see `loaded === true`
         // set by another instance without ever reading the files into its own template config.
         if (!this._loadedTemplates.has(name)) {
-            // Check if a path is specified for the HTML template. If so load it.
-            if (tplConfig.htmlPath && fs.existsSync(tplConfig.htmlPath)) {
-                tplConfig.html = fs.readFileSync(tplConfig.htmlPath, { encoding: "utf-8" });
+            // Check if a path is specified for the HTML template. If so load it. Uses `fs/promises` (rather
+            // than the sync `existsSync`/`readFileSync`) so a template read on a live send path doesn't block
+            // the event loop for every other in-flight request.
+            if (tplConfig.htmlPath && (await FileUtils.exists(tplConfig.htmlPath))) {
+                tplConfig.html = await fs.readFile(tplConfig.htmlPath, { encoding: "utf-8" });
             }
 
             // Check if a path is specified for the text template. If so load it.
-            if (tplConfig.textPath && fs.existsSync(tplConfig.textPath)) {
-                tplConfig.text = fs.readFileSync(tplConfig.textPath, { encoding: "utf-8" });
+            if (tplConfig.textPath && (await FileUtils.exists(tplConfig.textPath))) {
+                tplConfig.text = await fs.readFile(tplConfig.textPath, { encoding: "utf-8" });
             }
 
             tplConfig.loaded = true;
@@ -244,7 +251,7 @@ export class MessagingUtils {
             throw new Error("E-mail is not configured.");
         }
 
-        const tplConfig: Template = this.loadTemplate(templateName);
+        const tplConfig: Template = await this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.subject) {
             return undefined;
         }
@@ -290,7 +297,7 @@ export class MessagingUtils {
             throw new Error("Slack is not configured.");
         }
 
-        const tplConfig: Template = this.loadTemplate(templateName);
+        const tplConfig: Template = await this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.slack_channel || !tplConfig.slack_text) {
             return undefined;
         }
@@ -324,7 +331,7 @@ export class MessagingUtils {
             throw new Error("Twilio is not configured.");
         }
 
-        const tplConfig: Template = this.loadTemplate(templateName);
+        const tplConfig: Template = await this.loadTemplate(templateName);
         if (!tplConfig.enabled || !tplConfig.sms) {
             return undefined;
         }

@@ -84,10 +84,16 @@ describe("StringUtils Tests.", () => {
     });
 
     it("replaceAll returns successfully with a string pattern.", () => {
-        // Note: since the pattern "X" has no capture group, the replace callback's `capture` argument is the
-        // match offset (per String.prototype.replace semantics), not the matched text.
+        // The pattern "X" has no capture group, so there's no "inner" text distinct from the match to
+        // preserve - each match is replaced by `prefix` alone, i.e. ordinary search-and-replace.
         let result = StringUtils.replaceAll("aXbXc", "X", "-");
-        expect(result).toBe("a-1b-3c");
+        expect(result).toBe("a-b-c");
+    });
+
+    it("replaceAll returns successfully with a capture-less regular expression.", () => {
+        // Same no-capture-group behavior as the string-pattern case above, but via an explicit RegExp input.
+        let result = StringUtils.replaceAll("hello world", /o/g, "0");
+        expect(result).toBe("hell0 w0rld");
     });
 
     it("toCamelCase returns successfully.", () => {

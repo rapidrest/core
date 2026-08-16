@@ -14,7 +14,7 @@ describe("NotificationUtils Tests.", () => {
         const notifications = new NotificationUtils(redis);
         notifications.broadcastMessage("alert", "created", { foo: "bar" });
         expect(redis.publish).toHaveBeenCalledWith(
-            "allusers",
+            NotificationUtils.BROADCAST_CHANNEL,
             JSON.stringify({ type: "alert", action: "created", data: { foo: "bar" } }),
         );
     });
@@ -24,7 +24,7 @@ describe("NotificationUtils Tests.", () => {
         const notifications = new NotificationUtils(redis);
         notifications.sendMessage("user1", "alert", "created", { foo: "bar" });
         expect(redis.publish).toHaveBeenCalledWith(
-            "user1",
+            `${NotificationUtils.USER_CHANNEL_PREFIX}user1`,
             JSON.stringify({ type: "alert", action: "created", data: { foo: "bar" } }),
         );
     });
@@ -36,14 +36,28 @@ describe("NotificationUtils Tests.", () => {
         expect(redis.publish).toHaveBeenCalledTimes(2);
         expect(redis.publish).toHaveBeenNthCalledWith(
             1,
-            "user1",
+            `${NotificationUtils.USER_CHANNEL_PREFIX}user1`,
             JSON.stringify({ type: "alert", action: "created", data: { foo: "bar" } }),
         );
         expect(redis.publish).toHaveBeenNthCalledWith(
             2,
-            "user2",
+            `${NotificationUtils.USER_CHANNEL_PREFIX}user2`,
             JSON.stringify({ type: "alert", action: "created", data: { foo: "bar" } }),
         );
+    });
+
+    it("Cannot craft a uid that collides with the broadcast channel.", () => {
+        // Regression test for the channel-namespace collision this fix addresses: previously sendMessage()
+        // published directly to the raw uid, so a caller-supplied uid of "allusers" landed on the exact same
+        // channel broadcastMessage() used, delivering a scoped 1:1 message to every subscriber instead.
+        const redis = { publish: vi.fn() };
+        const notifications = new NotificationUtils(redis);
+        notifications.sendMessage("allusers", "alert", "created", { foo: "bar" });
+        expect(redis.publish).toHaveBeenCalledWith(
+            `${NotificationUtils.USER_CHANNEL_PREFIX}allusers`,
+            JSON.stringify({ type: "alert", action: "created", data: { foo: "bar" } }),
+        );
+        expect(redis.publish).not.toHaveBeenCalledWith(NotificationUtils.BROADCAST_CHANNEL, expect.anything());
     });
 
     it("Does not throw when the redis connection is later cleared.", () => {
@@ -68,7 +82,9 @@ describe("NotificationUtils Tests.", () => {
         // Let the rejected publish() promise's .catch() handler run.
         await new Promise((resolve) => setImmediate(resolve));
 
-        expect(logger.error).toHaveBeenCalledWith("Failed to publish message to channel: allusers");
+        expect(logger.error).toHaveBeenCalledWith(
+            `Failed to publish message to channel: ${NotificationUtils.BROADCAST_CHANNEL}`,
+        );
         expect(logger.debug).toHaveBeenCalledWith(err);
     });
 
@@ -85,7 +101,9 @@ describe("NotificationUtils Tests.", () => {
 
         expect(() => notifications.broadcastMessage("alert", "created", { foo: "bar" })).not.toThrow();
 
-        expect(logger.error).toHaveBeenCalledWith("Failed to publish message to channel: allusers");
+        expect(logger.error).toHaveBeenCalledWith(
+            `Failed to publish message to channel: ${NotificationUtils.BROADCAST_CHANNEL}`,
+        );
         expect(logger.debug).toHaveBeenCalledWith(err);
     });
 });

@@ -243,7 +243,15 @@ export class OASUtils {
         // on the same cache entry and return each other's content.
         const cacheKey = resolvedFile ?? file;
         if (_specCache.has(cacheKey)) {
-            return _specCache.get(cacheKey);
+            const cached = _specCache.get(cacheKey);
+            // Move to the end of the Map's iteration order so a frequently-reused spec isn't evicted ahead of
+            // one that's actually gone idle - Map.set() on an existing key doesn't reorder it by itself.
+            _specCache.delete(cacheKey);
+            _specCache.set(cacheKey, cached);
+            // Cloned before returning: callers routinely mutate a parsed OpenAPI spec in place (e.g. resolving
+            // `$ref`s), and returning the cached object directly would let that mutation silently corrupt every
+            // future cache hit for this same file/URL.
+            return structuredClone(cached);
         }
 
         let apiSpec: any = null;
@@ -305,7 +313,9 @@ export class OASUtils {
             _specCache.set(cacheKey, apiSpec);
         }
 
-        return apiSpec;
+        // Cloned so the object backing the cache entry just stored above stays independent of whatever the
+        // caller does with the value they get back (see the cache-hit branch above for why that matters).
+        return structuredClone(apiSpec);
     }
 
     /** Clears the spec parse cache. Useful in tests to force re-loading of specs. */

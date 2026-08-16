@@ -53,10 +53,22 @@ describe("JWTUtils Tests.", () => {
         payload: {
             compress: undefined,
             encrypt: true,
-            // aes-192-gcm (rather than aes-256) to match deriveKey()'s fixed 24-byte scrypt output, same as the
-            // other password-based configs above use via aes-192-cbc.
             iv: crypto.randomBytes(12),
-            algorithm: "aes-192-gcm",
+            algorithm: "aes-256-gcm",
+            password: "MyPasswordIsSecure",
+        },
+    };
+    const unsupportedAlgorithmConfig = {
+        secret: "MyPasswordIsSecure",
+        options: {
+            audience: "rapidrest.dev",
+            issuer: "rapidrest.dev",
+        },
+        payload: {
+            compress: undefined,
+            encrypt: true,
+            iv: crypto.randomBytes(16),
+            algorithm: "not-a-real-cipher",
             password: "MyPasswordIsSecure",
         },
     };
@@ -185,6 +197,12 @@ describe("JWTUtils Tests.", () => {
         const payload: JWTPayload = await JWTUtils.decodeToken(encryptGcmConfig, token);
         expect(payload.profile).toEqual(testUser);
         expect(payload.encryption).toBeTruthy();
+    });
+
+    it("Throws a clear error instead of an opaque 'Invalid key length' for an unrecognized cipher algorithm.", async () => {
+        await expect(JWTUtils.createToken(unsupportedAlgorithmConfig, testUser)).rejects.toThrow(
+            'Unknown or unsupported cipher algorithm: "not-a-real-cipher".',
+        );
     });
 
     it("Rejects a tampered auth tag when decoding an AEAD-encrypted JWT token.", async () => {

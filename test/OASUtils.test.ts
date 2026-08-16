@@ -801,8 +801,9 @@ describe("OASUtils Tests", () => {
         it("clears the cache so a subsequent load re-parses the file.", async () => {
             const first = await OASUtils.loadSpec("./test-openapi/openapi.json");
             const second = await OASUtils.loadSpec("./test-openapi/openapi.json");
-            // Cached: same parsed object instance is returned.
-            expect(second).toBe(first);
+            // Cached: same content, but always a distinct clone (see the dedicated test below for why).
+            expect(second).toEqual(first);
+            expect(second).not.toBe(first);
 
             OASUtils.clearSpecCache();
 
@@ -810,6 +811,19 @@ describe("OASUtils Tests", () => {
             expect(third).toEqual(first);
             // Re-parsed: a new object instance is returned after the cache was cleared.
             expect(third).not.toBe(first);
+        });
+
+        it("returns an independent clone on every call, so mutating one caller's result can't corrupt a later load.", async () => {
+            // Regression test: loadSpec() used to cache and return the same object reference on every cache
+            // hit. A caller doing normal spec post-processing (e.g. resolving `$ref`s in place - a standard
+            // OpenAPI-tooling step) would silently corrupt every future load of the same file/URL.
+            const first = await OASUtils.loadSpec("./test-openapi/openapi.json");
+            first.openapi = "MUTATED";
+            first.paths.newPath = { injected: true };
+
+            const second = await OASUtils.loadSpec("./test-openapi/openapi.json");
+            expect(second.openapi).not.toBe("MUTATED");
+            expect(second.paths.newPath).toBeUndefined();
         });
     });
 

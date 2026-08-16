@@ -248,10 +248,12 @@ export class ThreadPool {
         return new Promise((resolve, reject) => {
             let numReady: number = 0;
             let settled = false;
-            if (!options) {
-                options = {};
-            }
-            options.allowTs = "allowTs" in options ? options.allowTs : true;
+            // Copied rather than mutated in place - `options` may be the caller's own object (reused across
+            // multiple start() calls, or even frozen), and it shouldn't gain an `allowTs` property - or, via
+            // createWorker() below, an `entry` property - that the caller never set themselves. Everything past
+            // this point operates on `resolvedOptions`, never the original `options` parameter.
+            const resolvedOptions: WorkerOptions = { ...options };
+            resolvedOptions.allowTs = "allowTs" in resolvedOptions ? resolvedOptions.allowTs : true;
 
             const target = Math.min(num, this.maxThreads);
             if (target <= 0) {
@@ -286,7 +288,7 @@ export class ThreadPool {
             };
 
             // Guard against a worker that never reports readiness and never errors either.
-            const timeoutMs = options.startupTimeoutMs ?? ThreadPool.START_TIMEOUT_MS;
+            const timeoutMs = resolvedOptions.startupTimeoutMs ?? ThreadPool.START_TIMEOUT_MS;
             const timeoutHandle = setTimeout(() => {
                 failStartup(new Error(`Timed out waiting for worker threads to start after ${timeoutMs}ms.`));
             }, timeoutMs);
@@ -309,7 +311,7 @@ export class ThreadPool {
                     if (settled) {
                         return;
                     }
-                    if (options && !options.worker) {
+                    if (!resolvedOptions.worker) {
                         ready = true;
                         numReady++;
                     }
@@ -348,7 +350,7 @@ export class ThreadPool {
             };
 
             for (let i = 0; i < target; i++) {
-                const worker: Worker = this.createWorker(i, options, (newWorker) => {
+                const worker: Worker = this.createWorker(i, resolvedOptions, (newWorker) => {
                     if (!settled) {
                         attachReadyListeners(newWorker);
                     }

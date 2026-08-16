@@ -84,6 +84,22 @@ describe("ThreadPool Unit Tests.", () => {
         expect(pool.size).toBe(1);
     });
 
+    it("Does not mutate the caller's options object.", async () => {
+        // Regression test: start()/createWorker() used to write `allowTs`/`entry` directly onto the caller's
+        // own options object. A frozen options object - a defensive pattern a caller might reasonably use -
+        // used to make start() throw ("Cannot add property entry, object is not extensible") instead of
+        // starting the pool.
+        const pool = new ThreadPool(1);
+        const opts = Object.freeze({ worker: "./MyWorker.js", args: [1, 2, 3] });
+        const promise = pool.start(opts, 1);
+        createdWorkers[0].emit("message", { type: WorkerMessageType.ONLINE });
+        await expect(promise).resolves.toBeUndefined();
+
+        expect(opts).toEqual({ worker: "./MyWorker.js", args: [1, 2, 3] });
+        expect(Object.keys(opts)).not.toContain("entry");
+        expect(Object.keys(opts)).not.toContain("allowTs");
+    });
+
     it("Resolves start() once entry-style workers come online.", async () => {
         const pool = new ThreadPool(2);
         const promise = pool.start({ entry: "./worker.js" }, 2);

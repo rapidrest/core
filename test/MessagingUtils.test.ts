@@ -323,13 +323,13 @@ describe("MessagingUtils Tests.", () => {
             config.overrides(configuration);
             const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
 
-            const tpl1 = messagingUtils.loadTemplate("test");
+            const tpl1 = await messagingUtils.loadTemplate("test");
             expect(tpl1.loaded).toBe(true);
             expect(tpl1.html).toBeUndefined();
             expect(tpl1.text).toBeUndefined();
 
             // Second call should hit the cached "already loaded" branch and return the same object.
-            const tpl2 = messagingUtils.loadTemplate("test");
+            const tpl2 = await messagingUtils.loadTemplate("test");
             expect(tpl2).toBe(tpl1);
         });
 
@@ -347,7 +347,7 @@ describe("MessagingUtils Tests.", () => {
             config.overrides(configuration);
             const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
 
-            const tpl = messagingUtils.loadTemplate("test");
+            const tpl = await messagingUtils.loadTemplate("test");
             expect(tpl.loaded).toBe(true);
             expect(tpl.html).toContain("Hello {{name}}");
             expect(tpl.text).toContain("Hello {{name}}");
@@ -369,7 +369,7 @@ describe("MessagingUtils Tests.", () => {
             const messagingUtilsB: MessagingUtils = await factory.newInstance(MessagingUtils, { name: "b" });
 
             // The first instance compiles and caches the template, marking the shared config's `loaded` flag.
-            const tplA = messagingUtilsA.loadTemplate("test");
+            const tplA = await messagingUtilsA.loadTemplate("test");
             expect(tplA.loaded).toBe(true);
 
             // The second instance must still populate its own compiled-template cache rather than short-circuit
@@ -384,7 +384,7 @@ describe("MessagingUtils Tests.", () => {
             config.overrides(configuration);
             const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
 
-            const tpl1 = messagingUtils.loadTemplate("test");
+            const tpl1 = await messagingUtils.loadTemplate("test");
             expect(tpl1.subject).toBeUndefined();
 
             // Simulate a live config reload adding `subject` to the same (shared) template object after the
@@ -403,7 +403,7 @@ describe("MessagingUtils Tests.", () => {
             config.overrides(configuration);
             const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
 
-            const tpl1 = messagingUtils.loadTemplate("test");
+            const tpl1 = await messagingUtils.loadTemplate("test");
             expect(tpl1.text).toBe("Hello {{name}}");
             const first = await messagingUtils.sendEmail("test", { name: "World" });
             expect(first.text).toBe("Hello World");
@@ -425,7 +425,7 @@ describe("MessagingUtils Tests.", () => {
             config.overrides(configuration);
             const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
 
-            const tpl = messagingUtils.loadTemplate("test");
+            const tpl = await messagingUtils.loadTemplate("test");
             expect(tpl.html).toBeUndefined();
             expect(tpl.text).toBeUndefined();
         });

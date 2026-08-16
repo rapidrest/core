@@ -119,7 +119,24 @@ export class StringUtils {
                 : match.global
                   ? match
                   : new RegExp(match.source, match.flags + "g");
-        return str.replace(global, (_full, capture) => prefix + capture);
+
+        // Whether `global` has at least one capturing group, counted without executing it against `str` (a
+        // regex appended with an empty `|` alternative always matches the empty string, so `.exec("")`'s result
+        // array length - 1 gives the group count regardless of whether the original pattern would ever match).
+        // A plain `string` `match` compiles to a group-less regex, so this is always `false` in that case.
+        const hasCaptureGroup = new RegExp(global.source + "|").exec("")!.length > 1;
+
+        // A function replacer is used, receiving the full match plus every captured group in order. Without
+        // checking `hasCaptureGroup` first, a pattern with no capturing group would still receive a value in
+        // the "capture" position per String.prototype.replace's callback signature - but that value is the
+        // match's numeric *offset*, not `undefined`, silently corrupting the output (e.g. replaceAll("hello
+        // world", "o", "_") would embed "4"/"7" from the offsets instead of doing a plain substring
+        // replacement). With no capture group there's no "inner" text distinct from the match to preserve, so
+        // the whole match is simply replaced by `prefix` - i.e. ordinary search-and-replace semantics.
+        return str.replace(global, (...args: any[]) => {
+            const capture = hasCaptureGroup ? args[1] : "";
+            return prefix + capture;
+        });
     }
 
     /**
