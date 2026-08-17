@@ -1,0 +1,184 @@
+# Code review notes — rapidrest/core
+
+This file exists so future adversarial code reviews (human or agent) don't re-spend effort
+re-flagging design decisions this project has already settled, or re-discovering bugs already
+fixed. Read this before reviewing `src/`. Last updated after the 4th full review pass.
+
+## What this library is
+
+`rapidrest/core` is **not** a standalone web server. It's a developer-facing utility toolkit
+consumed as a dependency by the larger `rapidrest` framework, which developers use to build REST
+APIs and backend apps. Its consumers are application developers writing code, not end users of
+those apps directly. This distinction is the single most important thing to get right when
+judging whether something is a security vulnerability — see the calibration rule below.
+
+## The calibration rule for security findings
+
+Do not flag something as a vulnerability just because an input **could theoretically** be
+attacker-controlled. For every candidate finding, name a **concrete, plausible REST API feature**
+that a normal developer building an app with this framework would implement, where client-request
+data flows into the vulnerable code path. If you can't name that feature, it's not a vulnerability
+— classify it as one of:
+
+1. **Genuine client-reachable vulnerability** — report it.
+2. **Developer footgun** — unsafe only if fed untrusted input, but realistic callers are always
+   trusted/internal/config-driven (e.g. startup/bootstrap code, not a request handler). Don't
+   report as a vulnerability; a one-line mention is fine if worth noting.
+3. **Already-settled design decision** — see the list below. Don't re-flag.
+
+Four full review passes (three security+correctness/perf agent pairs, one confirmation-only pass)
+have been run against this codebase under this calibration. The reachable surface is now
+genuinely well-picked-over — a review that finds nothing new is a expected, good outcome, not a
+sign the review was insufficient. Don't manufacture findings to have something to report.
+
+## Settled design decisions — do NOT re-flag these
+
+- **`ClassLoader.load()`'s `dir`/`rootDir` have no path-containment/symlink checks.** This is
+  intentional (there's a prominent comment at the top of `load()` explaining it). These values are
+  always supplied by application startup/bootstrap code (e.g.
+  `new ClassLoader("./src/models").load()`), never derived from a client request — there's no sane
+  REST endpoint where a caller picks which directory of code the server dynamically imports and
+  executes. A containment check used to be enforced here and was **removed** because it broke
+  legitimate symlinked plugin/workspace directories for zero real benefit.
+- **`Logger`'s log messages are not sanitized for CR/LF.** Also intentional — CR/LF stripping was
+  added, then reverted after discussion. Log-injection mitigation belongs at the specific call site
+  logging untrusted data (where the developer knows the field is untrusted), not as a blanket tax
+  on every log call in the library. No mainstream Node logger (winston, pino, bunyan) strips
+  newlines by default either.
+- **`ObjectUtils`'s `new clazz()` pattern (building a metadata-reading instance) is safe.** This
+  framework's DTO contract *requires* every DTO class to have a no-required-args constructor
+  (`constructor(other?: any) { ... }`), so instantiating with zero arguments never throws or has
+  side effects. Don't flag this as "what if the constructor requires arguments."
+- **`FileUtils`'s opt-in `rootDir` parameter and `OASUtils.loadSpec`'s opt-in
+  `allowedDirs`/`allowedHosts` are correct and sufficient as opt-in guards.** Don't suggest making
+  them mandatory, and don't re-flag their mere existence. They exist specifically because "accept a
+  filename/spec-path/URL from a caller and read/write/fetch it" (file upload/download, a spec
+  registry/gateway feature) is a normal, plausible client-reachable REST feature — unlike
+  `ClassLoader`'s directory-of-code-to-import, which isn't.
+- **`TelemetryUtils.EventUtils` is an intentional process-wide singleton, initialized exactly once
+  at application startup, and stays active for the server's entire lifetime.** It has no
+  token-rotation method and `init()` resets `listeners`. This is **not a bug** — re-initializing it
+  mid-lifecycle is outside its intended usage contract, so "re-init wipes listeners" /
+  "no way to rotate the token without wiping listeners" is not worth flagging. (This was raised and
+  explicitly dismissed in review pass 4 for exactly this reason.)
+- **`MessagingUtils.sendEmail`/`sendSMS`'s `options` passthrough to nodemailer/twilio** only
+  protects `from`/`subject`/`text`/`html`/`body` from override; other fields (e.g. nodemailer's
+  `attachments[].path`) pass through untouched. This is intended flexibility, not a bug — it's only
+  a problem if a developer naively forwards a raw client request body as `options`, which is a
+  footgun to note in docs, not something to fix in the library.
+- **`ValidationUtils.checkURL`/`checkPhone` are thin wrappers** around `validator.isURL`/
+  `isMobilePhone` with default options. They don't reject private/internal hosts and aren't SSRF
+  protection despite what their names might suggest. Footgun to note (the name could mislead a
+  developer into treating validation as a security control), not a library bug to fix.
+
+## Issues found and fixed across prior passes (already resolved — don't re-report)
+
+**`ThreadPool.ts`**
+- Dead workers (crashed with no `restartOnExit`) used to crash `stop()`/`sendAll()`/`send()`/
+  `sendTo()` via an unguarded `postMessage()` on an exited worker, leaking every other running
+  worker. Fixed via an `exitedWorkers` `WeakSet` guard.
+- `start()`/`createWorker()` used to mutate the caller's `options` object in place (`allowTs`,
+  `entry`). Fixed — `start()` now copies into a local `resolvedOptions` before use.
+
+**`StringUtils.ts`**
+- `findAndReplace` used to mutate the caller's `variables` object (rewriting null/undefined values
+  to `""` in place). Fixed — builds a local `values` copy instead.
+- `replaceAll` used to produce garbage output (embedding numeric match offsets) for any pattern
+  without a capture group — including its own documented plain-string overload, which can never
+  have one. Fixed by counting capture groups up front and falling back to whole-match-replaced-by-
+  `prefix` semantics when there isn't one.
+
+**`AlertUtils.ts`**
+- `send()`/`close()` used to mutate the caller's `alert`/`data` object in place (template
+  substitution, truncation), breaking reuse of an `Alert` as a template across multiple `send()`
+  calls. Fixed — both now copy into a local `payload` before mutating.
+
+**`OASUtils.ts`**
+- `loadSpec`'s cache was keyed by the raw `file` argument instead of the resolved/validated path,
+  so two calls passing the same relative `file` string against different `allowedDirs` could
+  collide and return each other's content. Fixed — cache key is now `resolvedFile ?? file`.
+- `loadSpec` used `fs.existsSync`/`fs.readFileSync` (blocks the event loop). Converted to
+  `fs/promises`.
+- `loadSpec` cached and returned the *same* object reference on every call, so a caller mutating
+  the returned spec (e.g. resolving `$ref`s, a normal OpenAPI-tooling step) silently corrupted
+  every future cache hit for that file/URL. Fixed — every return (fresh parse or cache hit) is now
+  `structuredClone`'d.
+- `_specCache` evicted strictly FIFO, so a cache *hit* didn't protect a frequently-reused entry
+  from eviction. Fixed — a hit now does delete+reinsert to move the entry to the end of the Map's
+  iteration order.
+
+**`MessagingUtils.ts`**
+- `loadTemplate` never invalidated a compiled Handlebars delegate when a template field was
+  cleared/emptied (e.g. a live config reload), continuing to serve stale rendered output. Fixed.
+- `loadTemplate` used `fs.existsSync`/`fs.readFileSync` on the message-send path (blocks the event
+  loop for every in-flight request). Converted to `fs/promises`; **`loadTemplate` is now `async`
+  and returns `Promise<Template>`** (breaking signature change — all call sites, including tests,
+  were updated to `await` it).
+
+**`MemoryStore.ts`**
+- `save()` on an existing key didn't move it to the end of the underlying `Map`'s iteration order
+  (`Map.set()` on an existing key doesn't reorder it), so `evictOldest()` could evict an
+  actively-renewed entry ahead of a genuinely idle one. Fixed — `save()` now deletes then
+  re-inserts.
+
+**`ObjectUtils.ts`**
+- `_deleteScopedProps`/`_validate` had unbounded recursion depth with `recurse: true` (only cycle
+  detection, no depth cap) — a deeply-nested-but-non-cyclic object (e.g. attacker-controlled JSON)
+  could exhaust the call stack. Fixed — capped at `MAX_RECURSE_DEPTH = 50`, throws a clear error
+  past that.
+
+**`JWTUtils.ts`**
+- `hybridDecrypt` destructured `encoded.split(".")` into 4 parts with no length check (unlike the
+  password-decryption path, which validates `parts.length !== 3`). A malformed profile threw an
+  untyped `TypeError` instead of a clear error. Fixed — now validates `parts.length !== 4` first.
+- `finalizePayload`'s `zlib.gunzipSync` had no output-size cap — a decompression-bomb vector if a
+  less-trusted signer ever shared the verification secret. Fixed — capped via `maxOutputLength`
+  (`MAX_DECOMPRESSED_PROFILE_BYTES`, 10MB).
+- `deriveKey`/`deriveKeySync` hard-coded a 24-byte scrypt key length, which only satisfies
+  AES-192 — configuring password-based payload encryption with the far more common AES-256 (or
+  AES-128) threw `Invalid key length` on every `createToken`/`decodeToken` call. Fixed — key length
+  is now resolved per-algorithm via `crypto.getCipherInfo(algorithm)`, with a clear error for an
+  unrecognized algorithm instead of an opaque crypto error.
+
+**`ClassLoader.ts`**
+- Previously had a mandatory path-containment/symlink-escape check on `dir`/`rootDir`. **Removed**
+  — see "Settled design decisions" above. This is a deliberate design reversal, not a gap.
+
+**`Logger.ts`**
+- `_loggerCache` evicted strictly FIFO (same class of bug as `OASUtils._specCache` above — a hit
+  didn't protect an entry from eviction, so a hot logger could be evicted, and its file transport
+  closed possibly mid-write, purely because 100 other loggers were created after it). Fixed with
+  the same delete-then-reinsert-on-hit pattern.
+- CR/LF stripping from log messages was added then reverted — see "Settled design decisions."
+
+**`NotificationsUtils.ts`**
+- `broadcastMessage()` published to a hardcoded `"allusers"` channel, and `sendMessage(uids, ...)`
+  published directly to a channel named after the caller-supplied `uid`, with no namespace
+  separation. A client-facing "send a direct message to this uid" feature
+  (`POST /messages { to, text }` → `sendMessage(req.body.to, ...)`) let a client set
+  `to: "allusers"` and turn a scoped 1:1 message into a broadcast every subscriber received. Fixed
+  — `broadcastMessage` now publishes to `NotificationUtils.BROADCAST_CHANNEL`
+  (`"broadcast:allusers"`) and `sendMessage` prefixes every recipient channel with
+  `NotificationUtils.USER_CHANNEL_PREFIX` (`"user:"`), so the two namespaces can never collide
+  regardless of what uid a caller supplies.
+
+## Review methodology used
+
+Each pass used two adversarial agents reviewing the same 26 files in `src/` independently and in
+full (not sampled):
+- One with a security/attacker lens, calibrated to the client-reachability rule above.
+- One with a correctness/performance lens, looking for logic bugs, concurrency issues, memory
+  leaks, performance bottlenecks, and resource-lifecycle bugs — with particular attention to the
+  "mutates the caller's input object" bug class, which recurred across multiple unrelated files
+  (`StringUtils`, `AlertUtils`, `ThreadPool`) before it stopped showing up.
+
+Every finding from every agent was independently re-verified against the actual source (and, where
+practical, against a runnable Node repro) before being accepted or fixed — agent output was never
+taken at face value. Findings that didn't survive that verification, or that turned out to rest on
+a threat model that doesn't apply to this library, were dropped rather than fixed; see "Settled
+design decisions" for the ones worth remembering explicitly.
+
+Later passes explicitly pointed the agents at files that got less attention in earlier rounds
+(`ApiError.ts`, `CacheUtils.ts`, `ObjectFactory.ts`, `UserUtils.ts`, `ValidationUtils.ts`,
+`decorators/ObjectDecorators.ts`, `TelemetryUtils.ts`, `ThreadWorker.ts`, `ThreadLogger.js`) to
+avoid re-covering the same heavily-patched files every time at the expense of everything else.
