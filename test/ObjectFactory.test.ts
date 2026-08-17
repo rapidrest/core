@@ -518,6 +518,33 @@ describe("ObjectFactory Tests", () => {
         );
     });
 
+    it("Does not leave a zombie instance behind after a failed async initialization.", async () => {
+        await expect(factory.newInstance(AsyncFailingInitClass, { name: "default" })).rejects.toThrow(
+            "async init failed",
+        );
+
+        // The failed instance must not be reachable via getInstance()...
+        expect(factory.getInstance(AsyncFailingInitClass)).toBeUndefined();
+
+        // ...and a subsequent newInstance() call must attempt a fresh instantiation rather than silently
+        // returning the same broken object every time.
+        await expect(factory.newInstance(AsyncFailingInitClass, { name: "default" })).rejects.toThrow(
+            "async init failed",
+        );
+        expect(factory.getInstance(AsyncFailingInitClass)).toBeUndefined();
+    });
+
+    it("A concurrent newInstance() call for the same name awaits the in-flight initialization instead of receiving an uninitialized instance.", async () => {
+        const [first, second] = await Promise.all([
+            factory.newInstance<AsyncInitClass>(AsyncInitClass, { name: "default" }),
+            factory.newInstance<AsyncInitClass>(AsyncInitClass, { name: "default" }),
+        ]);
+
+        expect(first).toBe(second);
+        expect(first.initialized).toBe(true);
+        expect(second.initialized).toBe(true);
+    });
+
     it("Logs and swallows a rejected @Inject dependency instantiation instead of throwing.", async () => {
         const stubLogger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
         const localFactory = new ObjectFactory(config, stubLogger);

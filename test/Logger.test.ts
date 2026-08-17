@@ -34,6 +34,33 @@ describe("Logger Tests", () => {
         expect(logger).toBeDefined();
     });
 
+    it("Does not write ANSI color codes into the log file.", async () => {
+        const name = "test-logger-no-ansi";
+        const logger = Logger("debug", name);
+        const message = "plain text log line";
+        logger.info(message);
+
+        // The File transport writes asynchronously; poll briefly for the write to land instead of assuming a
+        // fixed delay is enough.
+        let content = "";
+        for (let i = 0; i < 50; i++) {
+            if (fs.existsSync(`${name}.log`)) {
+                content = fs.readFileSync(`${name}.log`, "utf8");
+                if (content.includes(message)) {
+                    break;
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+
+        expect(content).toContain(message);
+        // eslint-disable-next-line no-control-regex
+        expect(content).not.toMatch(/\x1b\[\d+m/);
+
+        fs.rmSync(`${name}.log`, { force: true });
+        fs.rmSync(`${name}error.log`, { force: true });
+    });
+
     it("Returns the same cached logger instance for identical arguments.", () => {
         const logger1 = Logger("debug", logFileName);
         const logger2 = Logger("debug", logFileName);

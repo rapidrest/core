@@ -2,7 +2,7 @@
 
 This file exists so future adversarial code reviews (human or agent) don't re-spend effort
 re-flagging design decisions this project has already settled, or re-discovering bugs already
-fixed. Read this before reviewing `src/`. Last updated after the 4th full review pass.
+fixed. Read this before reviewing `src/`. Last updated after the 5th full review pass.
 
 ## What this library is
 
@@ -26,10 +26,12 @@ data flows into the vulnerable code path. If you can't name that feature, it's n
    report as a vulnerability; a one-line mention is fine if worth noting.
 3. **Already-settled design decision** — see the list below. Don't re-flag.
 
-Four full review passes (three security+correctness/perf agent pairs, one confirmation-only pass)
-have been run against this codebase under this calibration. The reachable surface is now
-genuinely well-picked-over — a review that finds nothing new is a expected, good outcome, not a
-sign the review was insufficient. Don't manufacture findings to have something to report.
+Five full review passes (four security+correctness/perf agent pairs, one earlier confirmation-only
+pass) have been run against this codebase under this calibration. The reachable surface is now
+genuinely well-picked-over — a review that finds nothing new is an expected, good outcome, not a
+sign the review was insufficient. Don't manufacture findings to have something to report. The 5th
+pass's security lens found nothing new; its correctness/performance lens found the two
+`ObjectFactory.ts`/`Logger.ts` issues listed below, which were fixed in that pass.
 
 ## Settled design decisions — do NOT re-flag these
 
@@ -150,6 +152,30 @@ sign the review was insufficient. Don't manufacture findings to have something t
   closed possibly mid-write, purely because 100 other loggers were created after it). Fixed with
   the same delete-then-reinsert-on-hit pattern.
 - CR/LF stripping from log messages was added then reverted — see "Settled design decisions."
+
+**`ObjectFactory.ts`**
+- `newInstance()` registered the new instance in `instances`/`_firstByClass` before its (possibly async)
+  `initialize()` call completed — necessary so circular `@Inject` dependencies don't recurse forever, but with
+  two unguarded consequences: (1) if initialization failed (a synchronous throw, e.g. a missing required
+  `@Config` path, or an async-rejecting `@Init` method), the broken instance was never removed from the
+  registry, so every later `newInstance()` call for that name silently returned the same zombie object forever
+  via the fast path, with no error; (2) a concurrent `newInstance()` call for the same name, made while the
+  first call's async initialization was still pending, hit the "already exists" fast path and got back the raw,
+  not-yet-initialized instance synchronously instead of waiting for it. Fixed — a new `_pendingInit` map tracks
+  the in-flight initialization promise per name so a concurrent caller awaits the same promise instead of the
+  raw instance, and on any initialization failure (sync or async) the instance is now removed via a new
+  `_removeInstance()` helper (also now shared by `destroy()`) so a later call gets a clean retry instead of the
+  broken object.
+
+**`Logger.ts`**
+- `format.colorize()` was part of the single logger-level `format` shared by the Console transport and both
+  File transports (winston applies a logger-level `format` to any transport that doesn't supply its own
+  override). Every file-bound logger (i.e. every `Logger(level, file)` call, which is the entire point of the
+  `file` parameter) wrote ANSI escape codes into `*.log`/`*error.log` on disk, corrupting them for `grep`/log
+  shippers/aggregators expecting a plain-text level field. Fixed — the logger-level `format` is now the
+  uncolored base (so File transports, and any transport a caller adds later via `logger.add()`, still inherit
+  sensible plain-text formatting), and only the Console transport gets its own overriding format with
+  `colorize()` added.
 
 **`NotificationsUtils.ts`**
 - `broadcastMessage()` published to a hardcoded `"allusers"` channel, and `sendMessage(uids, ...)`

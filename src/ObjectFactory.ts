@@ -55,6 +55,13 @@ export class ObjectFactory {
     /** Secondary index: className → first registered instance key, for O(1) getInstance() fallback. */
     private readonly _firstByClass: Map<string, string> = new Map();
 
+    /** Tracks in-flight `initialize()` promises, keyed by registry name, for instances currently completing
+     * async initialization. `newInstance()` registers an instance in `instances` before its (possibly async)
+     * initialization completes, so a concurrent `newInstance()` call for the same name would otherwise find the
+     * entry via the instances-map fast path and receive the not-yet-initialized instance synchronously instead
+     * of waiting. Consulting this map lets that caller await the same in-flight initialization instead. */
+    private readonly _pendingInit: Map<string, Promise<any>> = new Map();
+
     constructor(config?: any, logger?: any) {
         this.config = config;
         this.logger = logger ? logger : Logger();
@@ -159,25 +166,30 @@ export class ObjectFactory {
             // torn-down zombie via the instances-map fast path. The factory's own bootstrap self-registration
             // (see the constructor) is left in place since it isn't a user-managed instance.
             if (name && obj !== this) {
-                this.instances.delete(name);
-                for (const [className, firstName] of this._firstByClass) {
-                    if (firstName === name) {
-                        // The destroyed instance was the secondary index's "first" entry for this class.
-                        // Promote another surviving instance of the same class if one exists, otherwise
-                        // drop the entry so getInstance() correctly reports no instance is available.
-                        let replacement: string | undefined;
-                        for (const key of this.instances.keys()) {
-                            if (key.startsWith(`${className}:`)) {
-                                replacement = key;
-                                break;
-                            }
-                        }
-                        if (replacement) {
-                            this._firstByClass.set(className, replacement);
-                        } else {
-                            this._firstByClass.delete(className);
-                        }
+                this._removeInstance(name);
+            }
+        }
+    }
+
+    /** Removes `name` from `instances`. If it was the secondary index's "first" entry for its class, promotes
+     * another surviving instance of the same class if one exists, otherwise drops the entry so `getInstance()`
+     * correctly reports no instance is available. Shared by `destroy()` and `newInstance()`'s failed-initialization
+     * cleanup. */
+    private _removeInstance(name: string): void {
+        this.instances.delete(name);
+        for (const [className, firstName] of this._firstByClass) {
+            if (firstName === name) {
+                let replacement: string | undefined;
+                for (const key of this.instances.keys()) {
+                    if (key.startsWith(`${className}:`)) {
+                        replacement = key;
+                        break;
                     }
+                }
+                if (replacement) {
+                    this._firstByClass.set(className, replacement);
+                } else {
+                    this._firstByClass.delete(className);
                 }
             }
         }
@@ -396,11 +408,14 @@ export class ObjectFactory {
                 ? name
                 : this._firstByClass.get(className);
             if (existingName && this.instances.has(existingName)) {
-                return this.instances.get(existingName);
+                // If the existing instance's async initialization is still in flight, return that same promise
+                // rather than the raw, not-yet-initialized instance - otherwise a concurrent caller would resolve
+                // immediately with an object whose injected config/logger/dependencies may still be undefined.
+                return this._pendingInit.get(existingName) ?? this.instances.get(existingName);
             }
         } else if (name && this.instances.has(name)) {
             // First check to see if an instance was already created for the given name
-            return this.instances.get(name);
+            return this._pendingInit.get(name) ?? this.instances.get(name);
         }
 
         // Make sure we have a valid type name
@@ -453,8 +468,35 @@ export class ObjectFactory {
 
         // Now initialize the object with any injectable defaults. This must happen after we add the instance
         // to our internal map so that circular dependencies due not cause endless cycles of creation/initialization.
+        //
+        // If initialization fails - synchronously (e.g. a missing required config path) or asynchronously (e.g. a
+        // rejecting `@Init` method) - the instance must not be left behind in `instances`/`_firstByClass`: without
+        // this cleanup, every later `newInstance()` call for the same name would silently hand back the same
+        // broken, half-initialized object forever via the fast path above, with no error and no way to recover
+        // short of the caller knowing to call `destroy()` first.
         if (initialize) {
-            return this.initialize(instance);
+            try {
+                const result: T | Promise<T> = this.initialize(instance);
+                if (result instanceof Promise) {
+                    const tracked: Promise<T> = result.then(
+                        (resolved) => {
+                            this._pendingInit.delete(name);
+                            return resolved;
+                        },
+                        (err) => {
+                            this._pendingInit.delete(name);
+                            this._removeInstance(name);
+                            throw err;
+                        },
+                    );
+                    this._pendingInit.set(name, tracked);
+                    return tracked;
+                }
+                return result;
+            } catch (err) {
+                this._removeInstance(name);
+                throw err;
+            }
         }
 
         return instance;

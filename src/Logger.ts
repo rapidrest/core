@@ -76,7 +76,15 @@ export const Logger: any = function(level: string = "debug", file: string | unde
         return cached;
     }
 
-    const transport: any[] = [new transports.Console()];
+    // `colorize()` wraps `info.level` in ANSI escape codes unconditionally - it doesn't detect whether the
+    // destination is a TTY. It must stay Console-only rather than living in the logger-level `format` below:
+    // winston applies the logger-level format to every transport that doesn't supply its own override -
+    // including the File transports, and any transport a caller adds later via `logger.add()` - so baking
+    // colorize() into it would corrupt on-disk logs and any other attached transport with escape sequences that
+    // break grep/log shippers/aggregators expecting a plain-text level field. The logger-level format is left as
+    // the uncolored base precisely so those other transports still inherit sensible plain-text formatting.
+    const base = combine(format.splat(), format.simple(), timestamp(), source(), logFormat);
+    const transport: any[] = [new transports.Console({ format: combine(format.colorize(), base) })];
     if (file) {
         transport.push(new winston.transports.File({ filename: file + "error.log", level: "error" }));
         transport.push(new winston.transports.File({ filename: file + ".log" }));
@@ -84,7 +92,7 @@ export const Logger: any = function(level: string = "debug", file: string | unde
 
     const logger = winston.createLogger({
         level,
-        format: combine(format.splat(), format.simple(), format.colorize(), timestamp(), source(), logFormat),
+        format: base,
         transports: transport,
     });
 
