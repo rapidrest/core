@@ -12,6 +12,8 @@ export * from "./NotificationsUtils.js";
 export * from "./ObjectFactory.js";
 export * from "./ObjectUtils.js";
 export * from "./OASUtils.js";
+export * from "./RedisStore.js";
+export * from "./SimpleStore.js";
 export * from "./StringUtils.js";
 export * from "./threads/index.js";
 export * from "./sleep.js";
