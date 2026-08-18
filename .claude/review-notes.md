@@ -177,6 +177,28 @@ pass's security lens found nothing new; its correctness/performance lens found t
   sensible plain-text formatting), and only the Console transport gets its own overriding format with
   `colorize()` added.
 
+**`RedisStore.ts`**
+- `save()` called `this.client.setex(id, JSON.stringify(data), ttl)` — ioredis's `setex` signature is
+  `setex(key, seconds, value)`, so the seconds/value arguments were swapped. Every `save()` against a
+  real Redis server would reject (non-integer `seconds` argument) or, if that ever changed shape,
+  silently store the wrong value. Fixed — arguments reordered to `setex(id, ttl, JSON.stringify(data))`.
+- `load()` returned `undefined` (and deleted the local entry) purely because the *local* cached copy
+  had expired, without ever consulting Redis — the actual source of truth for this hybrid store. Since
+  another process can renew a key in Redis with a longer TTL without this instance knowing, a locally-
+  expired-but-still-valid-in-Redis entry produced a false "not found." Fixed — on local expiry the
+  stale local entry is dropped and the method falls through to the Redis fallback path instead of
+  returning early.
+- `load()`'s Redis-fallback path unconditionally added the fetched entry to the local `entries` map
+  with no `maxSize` check (unlike `save()`, which sweeps/evicts before inserting). Since `load()` is a
+  normal read path, repeatedly loading distinct ids already present in Redis grew the local map without
+  bound regardless of `maxSize`. Fixed — `load()` now applies the same sweep-then-evict-to-maxSize logic
+  as `save()` before inserting.
+- `save()` updated the local `entries` map *before* awaiting the Redis `setex` call. If the Redis write
+  failed (bad connection, or the argument-order bug above), the promise rejected but the local cache had
+  already been mutated to reflect the "saved" value — leaving this instance's local cache diverged from
+  Redis (and from any other instance/process reading the same keys) even though the caller was told the
+  save failed. Fixed — the Redis write now happens first; the local cache is only updated on success.
+
 **`NotificationsUtils.ts`**
 - `broadcastMessage()` published to a hardcoded `"allusers"` channel, and `sendMessage(uids, ...)`
   published directly to a channel named after the caller-supplied `uid`, with no namespace

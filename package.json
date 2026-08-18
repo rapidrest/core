@@ -1,6 +1,6 @@
 {
     "name": "@rapidrest/core",
-    "version": "1.15.0",
+    "version": "2.0.0",
     "description": "A collection of common utilities and core functionality for rapidly building RESTful applications.",
     "repository": "https://github.com/rapidrest/core.git",
     "author": "RapidREST <rapidrests@gmail.com>",
@@ -34,6 +34,7 @@
     },
     "peerDependencies": {
         "axios": "1.x",
+        "ioredis": "6.x",
         "reflect-metadata": "0.2.x",
         "winston": "3.x",
         "winston-transport": "4.x"
@@ -58,6 +59,7 @@
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-import": "^2.32.0",
         "eslint-plugin-jsdoc": "^63.0.2",
+        "ioredis": "^6.0.0",
         "mkdirp": "^3.0.1",
         "nconf": "^0.13.0",
         "nock": "^14.0.15",
