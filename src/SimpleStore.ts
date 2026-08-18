@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Jean-Philippe Steinmetz. All rights reserved.
 ///////////////////////////////////////////////////////////////////////////////
 
-export interface MemoryStoreEntry<T> {
-    data: Record<string, T>;
+export interface MemoryStoreEntry {
+    data: Record<string, any>;
     expiresAt: number;
 }
 
@@ -13,7 +13,7 @@ export interface MemoryStoreEntry<T> {
  *
  * @author Jean-Philippe Steinmetz
  */
-export interface SimpleStore<T> {
+export interface SimpleStore {
     /** The default record TTL (in seconds). */
     defaultTTL: number;
     /** The maximum number of records to store. */
@@ -29,7 +29,7 @@ export interface SimpleStore<T> {
      * Retrieves the record with the given id.
      * @param id The id of the record to retrieve.
      */
-    load(id: string): Promise<Record<string, T> | undefined> | Record<string, T> | undefined;
+    load(id: string): Promise<Record<string, any> | undefined> | Record<string, any> | undefined;
 
     /**
      * Stores the record with the given id for the specified TTL.
@@ -37,5 +37,5 @@ export interface SimpleStore<T> {
      * @param data The record to store.
      * @param ttl The number of seconds that the record will be stored.
      */
-    save(id: string, data: Record<string, T>, ttl: number): Promise<void> | void;
+    save(id: string, data: Record<string, any>, ttl: number): Promise<void> | void;
 }

@@ -15,13 +15,13 @@ const SWEEP_INTERVAL_MS = 60_000;
  *
  * @author Jean-Philippe Steinmetz
  */
-export class RedisStore<T> implements SimpleStore<T> {
+export class RedisStore implements SimpleStore {
     public client?: ioredis.Redis;
 
     /** The default record TTL (in seconds). */
     public defaultTTL: number = 60;
 
-    protected entries: Map<string, MemoryStoreEntry<T>> = new Map();
+    protected entries: Map<string, MemoryStoreEntry> = new Map();
 
     /** The maximum number of records to store. */
     public maxSize: number = 10000;
@@ -42,7 +42,7 @@ export class RedisStore<T> implements SimpleStore<T> {
         clearInterval(this.sweepTimer);
     }
 
-    public async load(id: string): Promise<Record<string, T> | undefined> {
+    public async load(id: string): Promise<Record<string, any> | undefined> {
         const entry = this.entries.get(id);
         if (entry) {
             // If the local copy hasn't expired, it's safe to serve directly.
@@ -89,7 +89,7 @@ export class RedisStore<T> implements SimpleStore<T> {
             }
         }
 
-        const newEntry: MemoryStoreEntry<T> = {
+        const newEntry: MemoryStoreEntry = {
             data: JSON.parse(data as string),
             expiresAt: Date.now() + (ttl as number) * 1000,
         };
@@ -98,7 +98,7 @@ export class RedisStore<T> implements SimpleStore<T> {
         return newEntry.data;
     }
 
-    public async save(id: string, data: Record<string, T>, ttl: number = this.defaultTTL): Promise<void> {
+    public async save(id: string, data: Record<string, any>, ttl: number = this.defaultTTL): Promise<void> {
         // Write to Redis first (when configured): if it fails (bad connection, etc.), the local cache is left
         // untouched instead of reporting a "saved" value locally that never made it to the shared store other
         // instances read from.

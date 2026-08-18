@@ -13,11 +13,11 @@ const SWEEP_INTERVAL_MS = 60_000;
  *
  * @author Jean-Philippe Steinmetz
  */
-export class MemoryStore<T> implements SimpleStore<T> {
+export class MemoryStore implements SimpleStore {
     /** The default record TTL (in seconds). */
     public defaultTTL: number = 60;
 
-    protected entries: Map<string, MemoryStoreEntry<T>> = new Map();
+    protected entries: Map<string, MemoryStoreEntry> = new Map();
 
     /** The maximum number of records to store. */
     public maxSize: number = 10000;
@@ -35,7 +35,7 @@ export class MemoryStore<T> implements SimpleStore<T> {
         clearInterval(this.sweepTimer);
     }
 
-    public load(id: string): Record<string, T> | undefined {
+    public load(id: string): Record<string, any> | undefined {
         const entry = this.entries.get(id);
         if (!entry) {
             return undefined;
@@ -50,7 +50,7 @@ export class MemoryStore<T> implements SimpleStore<T> {
         return entry.data;
     }
 
-    public save(id: string, data: Record<string, T>, ttl: number = this.defaultTTL): void {
+    public save(id: string, data: Record<string, any>, ttl: number = this.defaultTTL): void {
         if (!this.entries.has(id) && this.entries.size >= this.maxSize) {
             // Reclaim space by sweeping expired entries first, then evicting the oldest surviving entries
             this.sweep();
