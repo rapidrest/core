@@ -445,6 +445,15 @@ export class ObjectFactory {
             value: className,
         });
 
+        // Always include a reference to the factory in the object in case it needs to use it
+        // in the future. This way it doesn't need to be injected and can be used by aspect
+        // decorators.
+        Object.defineProperty(instance as any, "_objectFactory", {
+            enumerable: false,
+            writable: false,
+            value: this,
+        });
+
         // Store the instance in our list of objects
         // `name` is always a truthy string by this point (it defaults to a freshly generated uuidV4() at the top
         // of this method and is never subsequently cleared), so the `else` (skip) side of this guard is
