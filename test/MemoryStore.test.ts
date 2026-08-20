@@ -177,6 +177,125 @@ describe("MemoryStore Tests", () => {
         });
     });
 
+    describe("deleteMany", () => {
+        it("Removes all listed entries.", async () => {
+            store = new MemoryStore();
+            store.save("id1", { n: 1 });
+            store.save("id2", { n: 2 });
+            store.save("id3", { n: 3 });
+
+            store.deleteMany(["id1", "id2"]);
+
+            expect(store.load("id1")).toBeUndefined();
+            expect(store.load("id2")).toBeUndefined();
+            expect(store.load("id3")).toEqual({ n: 3 });
+        });
+
+        it("Does not throw for an empty id list or for ids that were never saved.", async () => {
+            store = new MemoryStore();
+            expect(store.deleteMany([])).toBeUndefined();
+            expect(store.deleteMany(["missing"])).toBeUndefined();
+        });
+    });
+
+    describe("clear", () => {
+        it("Removes every stored entry and set.", async () => {
+            store = new MemoryStore();
+            store.save("id1", { n: 1 });
+            store.saveSet("set1", [{ uid: "a", n: 1 }]);
+
+            store.clear();
+
+            expect(store.load("id1")).toBeUndefined();
+            expect(store.loadSet("set1")).toBeUndefined();
+        });
+    });
+
+    describe("loadMany", () => {
+        it("Returns each record in the same order as the requested ids, with undefined for misses.", async () => {
+            store = new MemoryStore();
+            store.save("id1", { n: 1 });
+            store.save("id3", { n: 3 });
+
+            expect(store.loadMany(["id1", "id2", "id3"])).toEqual([{ n: 1 }, undefined, { n: 3 }]);
+        });
+
+        it("Returns an empty array for an empty id list.", async () => {
+            store = new MemoryStore();
+            expect(store.loadMany([])).toEqual([]);
+        });
+    });
+
+    describe("saveMany", () => {
+        it("Stores every record so it can be loaded back individually.", async () => {
+            store = new MemoryStore();
+            store.saveMany(["id1", "id2"], [{ n: 1 }, { n: 2 }], 30);
+
+            expect(store.load("id1")).toEqual({ n: 1 });
+            expect(store.load("id2")).toEqual({ n: 2 });
+        });
+
+        it("Throws when ids and data have different lengths.", async () => {
+            store = new MemoryStore();
+            expect(() => store.saveMany(["id1"], [{ n: 1 }, { n: 2 }])).toThrow(
+                "The ids and data arrays have different lengths.",
+            );
+        });
+    });
+
+    describe("saveSet/loadSet/deleteSet", () => {
+        it("Stores each record individually and the id list as a set, retrievable via loadSet.", async () => {
+            store = new MemoryStore();
+            const data = [
+                { uid: "a", n: 1 },
+                { uid: "b", n: 2 },
+            ];
+
+            store.saveSet("set1", data);
+
+            expect(store.loadSet("set1")).toEqual(data);
+            expect(store.load("a")).toEqual({ uid: "a", n: 1 });
+            expect(store.load("b")).toEqual({ uid: "b", n: 2 });
+        });
+
+        it("Uses a custom idProp when provided.", async () => {
+            store = new MemoryStore();
+            store.saveSet("set1", [{ id: "x", n: 1 }], "id");
+
+            expect(store.load("x")).toEqual({ id: "x", n: 1 });
+        });
+
+        it("Skips records whose idProp is missing, without letting them collide with one another.", async () => {
+            store = new MemoryStore();
+            store.saveSet("set1", [{ uid: "a", n: 1 }, { n: 2 }, { n: 3 }]);
+
+            expect(store.loadSet("set1")).toEqual([{ uid: "a", n: 1 }]);
+        });
+
+        it("Keeps a record whose idProp is falsy-but-valid (e.g. 0).", async () => {
+            store = new MemoryStore();
+            store.saveSet("set1", [{ uid: 0, n: 1 }]);
+
+            expect(store.load("0")).toEqual({ uid: 0, n: 1 });
+            expect(store.loadSet("set1")).toEqual([{ uid: 0, n: 1 }]);
+        });
+
+        it("loadSet returns undefined for a set that was never saved.", async () => {
+            store = new MemoryStore();
+            expect(store.loadSet("missing")).toBeUndefined();
+        });
+
+        it("deleteSet removes the set but leaves the individually-stored records alone.", async () => {
+            store = new MemoryStore();
+            store.saveSet("set1", [{ uid: "a", n: 1 }]);
+
+            store.deleteSet("set1");
+
+            expect(store.loadSet("set1")).toBeUndefined();
+            expect(store.load("a")).toEqual({ uid: "a", n: 1 });
+        });
+    });
+
     describe("background sweep", () => {
         it("Automatically evicts expired entries and keeps live ones when the sweep interval fires.", async () => {
             vi.useFakeTimers();

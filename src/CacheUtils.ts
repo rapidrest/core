@@ -13,11 +13,14 @@ export class CacheUtils {
      * whatever entry was `set()` least recently among those still present.
      *
      * @param map The map to evict the oldest entry from.
+     * @param num The total number of items to evict. Default is `1`.
      */
-    public static evictOldest<K, V>(map: Map<K, V>): void {
-        const oldestKey: K | undefined = map.keys().next().value;
-        if (oldestKey !== undefined) {
-            map.delete(oldestKey);
+    public static evictOldest<K, V>(map: Map<K, V>, num: number = 1): void {
+        for (let i = 0; i < num; i++) {
+            const oldestKey: K | undefined = map.keys().next().value;
+            if (oldestKey !== undefined) {
+                map.delete(oldestKey);
+            }
         }
     }
 }

@@ -33,6 +33,12 @@ sign the review was insufficient. Don't manufacture findings to have something t
 pass's security lens found nothing new; its correctness/performance lens found the two
 `ObjectFactory.ts`/`Logger.ts` issues listed below, which were fixed in that pass.
 
+A 6th pass (single-reviewer, not the two-agent methodology below) covered the `RedisStore.ts` /
+`MemoryStore.ts` ioredis→node-redis migration plus the new bulk (`*Many`) and set (`*Set`) operations
+added alongside it — see the entries below dated "6th pass". No new security findings; all findings
+were correctness bugs in the newly-added code, confirmed via `tsc --noEmit` (one was an outright build
+break) and/or direct tracing, not speculative.
+
 ## Settled design decisions — do NOT re-flag these
 
 - **`ClassLoader.load()`'s `dir`/`rootDir` have no path-containment/symlink checks.** This is
@@ -198,6 +204,48 @@ pass's security lens found nothing new; its correctness/performance lens found t
   already been mutated to reflect the "saved" value — leaving this instance's local cache diverged from
   Redis (and from any other instance/process reading the same keys) even though the caller was told the
   save failed. Fixed — the Redis write now happens first; the local cache is only updated on success.
+
+**`RedisStore.ts` — ioredis→node-redis migration + bulk/set operations (6th pass)**
+- `load()`/`loadMany()` used `.execAsPipeline()` (untyped, generic `T = MULTI_REPLY['GENERIC']`) whose
+  return type is `Array<ReplyUnion>`, not the inferred per-command tuple. This didn't just look wrong —
+  `tsc --noEmit` actually failed on it (`JSON.parse(data)` / `ttl * 1000` against a `ReplyUnion`). Fixed
+  in `load()` by switching to `.execAsPipelineTyped()` (properly typed for its fixed 2-command chain); in
+  `loadMany()`'s dynamically-built pipeline the tuple can't be statically inferred anyway, so it stays on
+  `.execAsPipeline()` with the per-element cast routed through `unknown` first, as TS's own error message
+  suggests, instead of the direct (invalid) cast that was there.
+- `saveSet()` cached `this.sets.set(this.baseKey + id, records)` — the *full records*, not the id list.
+  Every other read path (`loadSet()`'s local-cache fast path, the Redis-fallback path, and
+  `MemoryStore`'s equivalent) treats this map's values as an array of raw ids and passes it straight to
+  `loadMany()`. Concretely: `saveSet("s", data)` followed immediately by `loadSet("s")` in the same
+  process — the normal write-then-read pattern — hit the local-cache fast path with full objects instead
+  of ids, string-concatenated each object into the nonsense key `"...[object Object]"`, and returned
+  `undefined` for every record. Fixed — stores `ids`, matching every other path.
+- `saveSet()` filtered out records with a falsy `idProp` value (`if (id)`), silently dropping a
+  legitimately-id`0` record. Fixed to check `!== undefined && !== null` instead (also aligned
+  `MemoryStore.saveSet()` to the same check — see below).
+- `saveMany()`'s eviction pre-computed a single "evict N, then insert the whole batch" step sized to
+  `ids.length` (or, in an intermediate fix, to the count of ids not yet in `entries`). Both versions could
+  still evict a *live entry that is itself one of the ids in the current batch* (already cached, just
+  being renewed) — that id gets reinserted immediately after anyway, so the eviction bought no real room,
+  and the final map ends up larger than `maxSize`. `loadMany()`'s equivalent batch (the redis-fallback
+  "toSave" list) doesn't have this failure mode, since every id there is guaranteed to be a genuine local
+  miss (never already in `entries`) — only `saveMany()` (and transitively `saveSet()`, which calls it)
+  can be handed ids that overlap already-cached keys. Fixed by reverting `saveMany()` to the same
+  per-id "check→sweep/evict→insert" pattern `save()` already uses (proven correct there), rather than
+  trying to precompute a batch eviction count.
+- `deleteMany([])` reached Redis's `DEL` with zero keys, which the server rejects
+  (`ERR wrong number of arguments`). Fixed with an early return for an empty `ids` array (mirrors
+  `MemoryStore.deleteMany()`, which already no-ops on empty input).
+- `clear()`'s scan-key accumulation used `keys = keys.concat(results)` per page, which is O(n²) over a
+  large keyspace. Changed to `keys.push(...results)`. Minor, but free to fix while in the file.
+
+**`MemoryStore.ts` — bulk/set operations (6th pass)**
+- `saveSet()` derived each record's id via `String(record[idProp])` unconditionally. Every record missing
+  `idProp` produced the same key, the literal string `"undefined"` — so two or more such records in one
+  `saveSet()` call silently overwrote each other in `entries`, and the `ids` array recorded that key
+  multiple times. `RedisStore.saveSet()` already skipped these records instead; `MemoryStore` didn't,
+  making the two `SimpleStore` implementations behave differently for the same input. Fixed —
+  `MemoryStore.saveSet()` now skips records whose `idProp` is `undefined`/`null`, matching `RedisStore`.
 
 **`NotificationsUtils.ts`**
 - `broadcastMessage()` published to a hardcoded `"allusers"` channel, and `sendMessage(uids, ...)`
