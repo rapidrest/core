@@ -4,7 +4,7 @@
 import { CacheUtils } from "./CacheUtils.js";
 import { Destroy } from "./decorators/ObjectDecorators.js";
 import { MemoryStoreEntry, SimpleStore } from "./SimpleStore.js";
-import { RedisClientType } from "redis";
+import type { RedisClientType } from "redis";
 
 /** How often the sweep interval reclaims expired, never-reloaded sessions. */
 const SWEEP_INTERVAL_MS = 60_000;
