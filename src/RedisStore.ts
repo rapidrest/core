@@ -39,7 +39,7 @@ export class RedisStore implements SimpleStore {
      * @param baseKey The base key that is pre-pended to all IDs.
      * @param client The Redis client to back this store with. When omitted, the store operates purely in-memory.
      */
-    constructor(baseKey: string = "store", client?: RedisClientType) {
+    constructor(baseKey: string = "store.", client?: RedisClientType) {
         this.baseKey = baseKey;
         this.client = client;
         this.sweepTimer = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);

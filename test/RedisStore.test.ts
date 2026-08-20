@@ -97,7 +97,7 @@ describe("RedisStore Tests", () => {
 
         it("Defaults the base key to 'store' when none is given.", () => {
             store = new RedisStore();
-            expect(store.baseKey).toBe("store");
+            expect(store.baseKey).toBe("store.");
         });
 
         it("Uses a custom base key when provided.", () => {
@@ -200,8 +200,8 @@ describe("RedisStore Tests", () => {
             vi.advanceTimersByTime(1001);
             vi.advanceTimersByTime(60_000);
 
-            expect((store as any).entries.has("storeexpired")).toBe(false);
-            expect((store as any).entries.has("storealive")).toBe(true);
+            expect((store as any).entries.has("store.expired")).toBe(false);
+            expect((store as any).entries.has("store.alive")).toBe(true);
         });
     });
 
