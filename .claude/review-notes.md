@@ -2,7 +2,7 @@
 
 This file exists so future adversarial code reviews (human or agent) don't re-spend effort
 re-flagging design decisions this project has already settled, or re-discovering bugs already
-fixed. Read this before reviewing `src/`. Last updated after the 7th full review pass.
+fixed. Read this before reviewing `src/`. Last updated after the 8th full review pass.
 
 ## What this library is
 
@@ -50,6 +50,16 @@ files; three genuine new findings, all in the `sets: Map` side of `RedisStore.ts
 pass's bulk/set work but never given the same TTL/size discipline) plus one Redis key-namespacing gap
 in `RedisStore.ts` — see the entries below dated "7th pass". All three fixed, with regression tests
 covering set-TTL expiry, set-cache size eviction, and the key-encoding fix.
+
+An 8th pass (two-agent, same 28 files, again weighted toward re-checking `RedisStore.ts`/
+`MemoryStore.ts`/`SimpleStore.ts` since they were the most recently/heavily changed) found the 7th
+pass's fixes fully verified airtight by the security lens (no new security findings at all), but the
+correctness lens found one more instance of the exact bug class the 6th pass had already fixed in
+`saveMany()` — `loadMany()`'s redis-fallback path still used the old "precompute one batch eviction
+count" approach and had the same failure mode, just triggered by a different condition (a fetched batch
+larger than `maxSize`, rather than a batch overlapping already-cached ids). See the entry below dated
+"8th pass". Fixed the same way `saveMany()` was fixed — reverted to per-id check→evict→insert — with a
+regression test (`loadMany` with a 5-id batch against `maxSize = 2`) that fails against the old code.
 
 ## Settled design decisions — do NOT re-flag these
 
@@ -296,6 +306,20 @@ covering set-TTL expiry, set-cache size eviction, and the key-encoding fix.
   can never contain a literal `:` (or `/`, etc.) that reintroduces another namespace's delimiter. Ids made
   only of unreserved characters (the common case — alphanumeric ids, UUIDs) are unaffected, since
   `encodeURIComponent` is the identity function on those.
+
+**`RedisStore.ts` — `loadMany()`'s redis-fallback batch eviction undercounted for a batch larger than `maxSize` (8th pass)**
+- Same bug class the 6th pass already fixed in `saveMany()` (see below), reintroduced by a different
+  trigger in the sibling `loadMany()` method: its redis-fallback path precomputed a single eviction count
+  via `overflow = this.entries.size + toSave.length - this.maxSize`, then capped it at
+  `Math.min(overflow, this.entries.size)` before the unconditional insert loop. When the batch of ids
+  found in Redis (`toSave`) is itself larger than `maxSize` — a normal outcome of a bulk `loadMany()`
+  against a store with a small/default `maxSize`, not an edge case — capping eviction at the map's
+  *current* size evicts too little (e.g. `entries.size = 0`, `maxSize = 2`, `toSave.length = 5` →
+  `overflow = 3`, capped to `Math.min(3, 0) = 0` evictions), and the loop then unconditionally inserts
+  every item in `toSave`, leaving `entries.size` far above `maxSize`. Fixed the same way `saveMany()` was
+  fixed — reverted to a per-id "check→sweep/evict→insert" loop identical to `save()`'s, instead of
+  precomputing a batch eviction count, so `entries.size` can never exceed `maxSize` regardless of how
+  large a single `loadMany()` batch is.
 
 **`NotificationsUtils.ts`**
 - `broadcastMessage()` published to a hardcoded `"allusers"` channel, and `sendMessage(uids, ...)`

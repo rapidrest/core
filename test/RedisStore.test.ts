@@ -433,6 +433,27 @@ describe("RedisStore Tests", () => {
             expect((store as any).entries.has("storeid2")).toBe(true);
             expect((store as any).entries.has("storeid3")).toBe(true);
         });
+
+        it("Stays at maxSize even when the fetched batch alone is larger than maxSize.", async () => {
+            let execAsPipelineMock: ReturnType<typeof vi.fn>;
+            ({ store, execAsPipelineMock } = createStore());
+            store.maxSize = 2;
+
+            const ids = ["a", "b", "c", "d", "e"];
+            const pipelineResult: any[] = [];
+            for (const id of ids) {
+                pipelineResult.push(JSON.stringify({ id }), 60);
+            }
+            execAsPipelineMock.mockResolvedValue(pipelineResult);
+
+            const result = await store.loadMany(ids);
+
+            // Every id was still resolved from redis and returned to the caller...
+            expect(result).toEqual(ids.map((id) => ({ id })));
+            // ...but the local cache must not be left holding more than maxSize entries just because a single
+            // batch happened to be larger than the cap.
+            expect((store as any).entries.size).toBeLessThanOrEqual(2);
+        });
     });
 
     describe("loadSet", () => {

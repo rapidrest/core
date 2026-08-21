@@ -208,28 +208,24 @@ export class RedisStore implements SimpleStore {
                 }
             }
 
-            // Finally go through all items to save.
-            if (toSave.length > 0) {
-                // Let's do a sweep on the local map and free up space while we're at it. Every id in `toSave` is
-                // guaranteed to be a genuinely new key (load() already deleted any expired local copy before
-                // reporting a miss), so `toSave.length` is exactly how much the map is about to grow by.
-                if (this.entries.size + toSave.length > this.maxSize) {
-                    // Reclaim space by sweeping expired entries first, then evicting exactly enough of the oldest
-                    // surviving entries for the whole batch to fit — evicting a fixed `toSave.length` regardless
-                    // of how much the sweep already freed would evict more live entries than necessary.
+            // Finally go through all items to save. Evicted per-id, exactly like save()/saveMany() do, rather
+            // than precomputing a single batch eviction count sized to `toSave.length`: when the batch itself is
+            // larger than `maxSize` (a normal outcome of a bulk loadMany() against a store with a small/default
+            // maxSize), `overflow` capped at the map's *current* size evicts too little, and the unconditional
+            // insert loop that followed left `entries.size` far above `maxSize`. Same bug class saveMany() was
+            // already fixed for - see its comment below for the full rationale.
+            for (const entry of toSave) {
+                const key = this._key(entry.id);
+
+                if (!this.entries.has(key) && this.entries.size >= this.maxSize) {
                     this.sweep();
-                    const overflow = this.entries.size + toSave.length - this.maxSize;
-                    if (overflow > 0) {
-                        CacheUtils.evictOldest(this.entries, Math.min(overflow, this.entries.size));
+                    while (this.entries.size >= this.maxSize && this.entries.size > 0) {
+                        CacheUtils.evictOldest(this.entries);
                     }
                 }
 
-                for (const entry of toSave) {
-                    this.entries.set(this._key(entry.id), {
-                        data: entry.data,
-                        expiresAt: Date.now() + entry.ttl * 1000,
-                    });
-                }
+                this.entries.delete(key);
+                this.entries.set(key, { data: entry.data, expiresAt: Date.now() + entry.ttl * 1000 });
             }
         }
 
