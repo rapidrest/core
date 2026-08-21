@@ -108,4 +108,4 @@ dependencies — only install the ones for the channel(s) you actually use:
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MPL v2.0 — see [LICENSE](./LICENSE).
