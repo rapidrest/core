@@ -1,3 +1,7 @@
+///////////////////////////////////////////////////////////////////////////////
+// Copyright (C) 2020-2026 Jean-Philippe Steinmetz
+// SPDX-License-Identifier: MPL-2.0
+///////////////////////////////////////////////////////////////////////////////
 import { MessagingUtils } from "../src/MessagingUtils.js";
 import { ObjectFactory } from "../src/ObjectFactory.js";
 import { Logger } from "../src/Logger.js";
@@ -5,22 +9,22 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vites
 import fs from "fs";
 
 const AppMock = vi.fn(function AppMock() {
-  return {
-    client: {
-      chat: {
-        postMessage: vi.fn().mockResolvedValue({ ok: true }),
-      },
-    },
-  }
-})
+    return {
+        client: {
+            chat: {
+                postMessage: vi.fn().mockResolvedValue({ ok: true }),
+            },
+        },
+    };
+});
 // Allows individual tests to force the destructured `App` import to be falsy in order to exercise the
 // "Failed to import @slack/bolt" guard in MessagingUtils#init().
 let slackAppOverride: any = AppMock;
 vi.mock("@slack/bolt", () => ({
-  get App() {
-    return slackAppOverride;
-  },
-}))
+    get App() {
+        return slackAppOverride;
+    },
+}));
 
 vi.mock("nodemailer", () => ({
     createTransport: vi.fn().mockImplementation(() => ({
@@ -31,16 +35,16 @@ vi.mock("nodemailer", () => ({
 
 const twilioMessagesCreateMock = vi.fn().mockResolvedValue({ sid: "SM_test" });
 const TwilioMock = vi.fn(function TwilioMock() {
-  return {
-    messages: {
-      create: twilioMessagesCreateMock,
-    },
-  };
+    return {
+        messages: {
+            create: twilioMessagesCreateMock,
+        },
+    };
 });
 // The real "twilio" package's dynamic import only exposes a callable `default` export (its whole module
 // namespace object is never itself callable), so the mock mirrors that shape.
 vi.mock("twilio", () => ({
-  default: TwilioMock,
+    default: TwilioMock,
 }));
 
 describe("MessagingUtils Tests.", () => {
@@ -115,7 +119,6 @@ describe("MessagingUtils Tests.", () => {
         await expect(messagingUtils.sendSlack("test", {})).rejects.toThrow("No template found with name test");
     });
 
-
     it("Cannot send slack, template not enabled.", async () => {
         const config = (await import("./config.js")).default;
         configuration.templates.test.enabled = false;
@@ -175,7 +178,9 @@ describe("MessagingUtils Tests.", () => {
         try {
             const config = (await import("./config.js")).default;
             config.overrides(configuration);
-            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(
+                MessagingUtils,
+            );
             await expect(messagingUtils.sendSlack("test", {})).rejects.toThrow("Slack is not configured.");
         } finally {
             slackAppOverride = AppMock;
@@ -321,7 +326,9 @@ describe("MessagingUtils Tests.", () => {
             const config = (await import("./config.js")).default;
             configuration.templates.test = { enabled: true };
             config.overrides(configuration);
-            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(
+                MessagingUtils,
+            );
 
             const tpl1 = await messagingUtils.loadTemplate("test");
             expect(tpl1.loaded).toBe(true);
@@ -345,7 +352,9 @@ describe("MessagingUtils Tests.", () => {
                 textPath,
             };
             config.overrides(configuration);
-            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(
+                MessagingUtils,
+            );
 
             const tpl = await messagingUtils.loadTemplate("test");
             expect(tpl.loaded).toBe(true);
@@ -382,7 +391,9 @@ describe("MessagingUtils Tests.", () => {
             // Start with `subject` absent so the first loadTemplate() call has nothing to compile for it.
             configuration.templates.test = { enabled: true };
             config.overrides(configuration);
-            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(
+                MessagingUtils,
+            );
 
             const tpl1 = await messagingUtils.loadTemplate("test");
             expect(tpl1.subject).toBeUndefined();
@@ -401,7 +412,9 @@ describe("MessagingUtils Tests.", () => {
                 text: "Hello {{name}}",
             };
             config.overrides(configuration);
-            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(
+                MessagingUtils,
+            );
 
             const tpl1 = await messagingUtils.loadTemplate("test");
             expect(tpl1.text).toBe("Hello {{name}}");
@@ -423,7 +436,9 @@ describe("MessagingUtils Tests.", () => {
                 textPath: missingTextPath,
             };
             config.overrides(configuration);
-            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(MessagingUtils);
+            const messagingUtils: MessagingUtils = await new ObjectFactory(config, Logger()).newInstance(
+                MessagingUtils,
+            );
 
             const tpl = await messagingUtils.loadTemplate("test");
             expect(tpl.html).toBeUndefined();

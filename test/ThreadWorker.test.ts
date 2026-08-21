@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
+// SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 import { ThreadWorker, WorkerMessage, WorkerMessageType } from "../src/threads/ThreadWorker.js";
 import { describe, it, expect } from "vitest";

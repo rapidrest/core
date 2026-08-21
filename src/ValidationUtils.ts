@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
+// SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 import validator from "validator";
 
@@ -15,7 +16,7 @@ export class ValidationUtils {
     /**
      * A simple wrapper that calls the specified boolean validation function with the given value and returns the
      * value as a result if the validation function passes. Otherwise throws an error.
-     * 
+     *
      * @param val The value to validate.
      * @param func The boolean validation function to check the value.
      * @throws Throws an error if the value fails the boolean validation test.
@@ -152,9 +153,7 @@ export class ValidationUtils {
         // a legitimate version `0` instead of being rejected below. `undefined` needs no such guard since
         // `Number(undefined)` already evaluates to `NaN`.
         const isEmpty =
-            val === null ||
-            (typeof val === "string" && val.trim() === "") ||
-            (Array.isArray(val) && val.length === 0);
+            val === null || (typeof val === "string" && val.trim() === "") || (Array.isArray(val) && val.length === 0);
         const num: number = isEmpty ? NaN : Number(val);
         if (isNaN(num)) {
             throw new Error("Value is not a valid version number.");

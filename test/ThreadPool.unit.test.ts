@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2020-2026 Jean-Philippe Steinmetz
+// SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 // Unit-level tests for ThreadPool that mock out `worker_threads` entirely. The real-thread integration test in
 // ThreadPool.test.ts is kept (but skipped, see that file for why) as a reference for real-world usage; spinning up

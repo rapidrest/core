@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2026 Jean-Philippe Steinmetz. All rights reserved.
+// SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../src/MemoryStore.js";
