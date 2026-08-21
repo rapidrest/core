@@ -540,6 +540,25 @@ describe("RedisStore Tests", () => {
                 { uid: "b", n: 2 },
             ]);
         });
+
+        it("Evicts the oldest cached set once the local set cache is at maxSize before caching a redis fallback.", async () => {
+            let execAsPipelineTypedMock: ReturnType<typeof vi.fn>;
+            let execAsPipelineMock: ReturnType<typeof vi.fn>;
+            ({ store, execAsPipelineTypedMock, execAsPipelineMock } = createStore());
+            store.maxSize = 1;
+
+            await store.saveSet("set1", [{ uid: "a", n: 1 }]);
+            expect((store as any).sets.size).toBe(1);
+
+            execAsPipelineTypedMock.mockResolvedValueOnce([JSON.stringify(["b"]), 60]);
+            execAsPipelineMock.mockResolvedValue([JSON.stringify({ uid: "b", n: 2 }), 60]);
+
+            await store.loadSet("set2");
+
+            expect((store as any).sets.size).toBe(1);
+            expect((store as any).sets.has("storeset1")).toBe(false);
+            expect((store as any).sets.has("storeset2")).toBe(true);
+        });
     });
 
     describe("save", () => {
@@ -1020,6 +1039,20 @@ describe("RedisStore Tests", () => {
 
             expect((store as any).entries.has("storeexpired")).toBe(false);
             expect((store as any).entries.has("storealive")).toBe(true);
+        });
+
+        it("Automatically evicts expired sets and keeps live ones when the sweep interval fires.", async () => {
+            vi.useFakeTimers();
+            ({ store } = createStore());
+
+            await store.saveSet("expired", [{ uid: "a", n: 1 }], "uid", 1);
+            await store.saveSet("alive", [{ uid: "b", n: 2 }], "uid", 120);
+
+            vi.advanceTimersByTime(1001);
+            vi.advanceTimersByTime(60_000);
+
+            expect((store as any).sets.has("storeexpired")).toBe(false);
+            expect((store as any).sets.has("storealive")).toBe(true);
         });
     });
 
