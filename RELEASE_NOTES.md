@@ -1,5 +1,9 @@
 # Release Notes
 
+## v5.0.0
+
+* Switched from MIT license to MPLv2.0
+
 ## v4.1.0
 
 * `RedisStore` and `MemoryStore` now enforce a maximum size and TTL-based expiry on stored record sets
