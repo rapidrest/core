@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import { CacheUtils } from "./CacheUtils.js";
 import { Destroy } from "./decorators/ObjectDecorators.js";
-import { MemoryStoreEntry, SimpleStore } from "./SimpleStore.js";
+import { MemoryStoreEntry, MemoryStoreSetEntry, SimpleStore } from "./SimpleStore.js";
 
 /** How often the sweep interval reclaims expired, never-reloaded sessions. */
 const SWEEP_INTERVAL_MS = 60_000;
@@ -22,7 +22,7 @@ export class MemoryStore implements SimpleStore {
     /** The maximum number of records to store. */
     public maxSize: number = 10000;
 
-    protected sets: Map<string, any[]> = new Map();
+    protected sets: Map<string, MemoryStoreSetEntry> = new Map();
 
     private sweepTimer: ReturnType<typeof setInterval>;
 
@@ -85,11 +85,18 @@ export class MemoryStore implements SimpleStore {
     }
 
     public loadSet(id: string): (Record<string, any> | undefined)[] | undefined {
-        const ids: any[] | undefined = this.sets.get(id);
-        if (!ids) {
+        const entry = this.sets.get(id);
+        if (!entry) {
             return undefined;
         }
-        return this.loadMany(ids);
+
+        // Same expiry discipline as load(): a set left past its TTL must not keep being served.
+        if (entry.expiresAt <= Date.now()) {
+            this.sets.delete(id);
+            return undefined;
+        }
+
+        return this.loadMany(entry.ids);
     }
 
     public save(id: string, data: Record<string, any>, ttl: number = this.defaultTTL): void {
@@ -138,14 +145,25 @@ export class MemoryStore implements SimpleStore {
             this.save(ids[i], records[i], ttl);
         }
 
-        // Now store the id set
-        this.sets.set(id, ids);
+        // Now store the id set, bounded by maxSize the same way entries are - otherwise a caller that varies the
+        // set id per request/user/query (a normal saveSet usage pattern) would grow this map without limit.
+        if (!this.sets.has(id) && this.sets.size >= this.maxSize) {
+            this.sweep();
+            while (this.sets.size >= this.maxSize && this.sets.size > 0) {
+                CacheUtils.evictOldest(this.sets);
+            }
+        }
+        this.sets.delete(id);
+        this.sets.set(id, { ids, expiresAt: Date.now() + ttl * 1000 });
     }
 
     private sweep(): void {
         const now = Date.now();
         for (const [sessionId, entry] of this.entries.entries()) {
             if (entry.expiresAt <= now) this.entries.delete(sessionId);
+        }
+        for (const [key, entry] of this.sets.entries()) {
+            if (entry.expiresAt <= now) this.sets.delete(key);
         }
     }
 }

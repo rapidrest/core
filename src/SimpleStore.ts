@@ -7,6 +7,11 @@ export interface MemoryStoreEntry {
     expiresAt: number;
 }
 
+export interface MemoryStoreSetEntry {
+    ids: any[];
+    expiresAt: number;
+}
+
 /**
  * Defines an interface for a simple key-value storage system that stores temporary records with a specified
  * lifetime (TTL) and size. Supports the storage and retrieval of individual records as well as sets of records.

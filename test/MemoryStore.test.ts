@@ -294,6 +294,31 @@ describe("MemoryStore Tests", () => {
             expect(store.loadSet("set1")).toBeUndefined();
             expect(store.load("a")).toEqual({ uid: "a", n: 1 });
         });
+
+        it("loadSet returns undefined and drops the entry once a saved set's TTL has expired.", async () => {
+            vi.useFakeTimers();
+            store = new MemoryStore();
+            store.saveSet("set1", [{ uid: "a", n: 1 }], "uid", 1);
+
+            vi.advanceTimersByTime(1001);
+
+            expect(store.loadSet("set1")).toBeUndefined();
+            expect((store as any).sets.has("set1")).toBe(false);
+        });
+
+        it("Evicts the single oldest set once the store is at maxSize, without touching the others.", async () => {
+            store = new MemoryStore();
+            store.maxSize = 2;
+
+            store.saveSet("set1", [{ uid: "a", n: 1 }]);
+            store.saveSet("set2", [{ uid: "b", n: 2 }]);
+            expect((store as any).sets.size).toBe(2);
+
+            store.saveSet("set3", [{ uid: "c", n: 3 }]);
+            expect((store as any).sets.size).toBe(2);
+            expect((store as any).sets.has("set1")).toBe(false);
+            expect((store as any).sets.has("set3")).toBe(true);
+        });
     });
 
     describe("background sweep", () => {
@@ -311,6 +336,20 @@ describe("MemoryStore Tests", () => {
 
             expect((store as any).entries.has("expired")).toBe(false);
             expect((store as any).entries.has("alive")).toBe(true);
+        });
+
+        it("Automatically evicts expired sets and keeps live ones when the sweep interval fires.", async () => {
+            vi.useFakeTimers();
+            store = new MemoryStore();
+
+            store.saveSet("expired", [{ uid: "a", n: 1 }], "uid", 1);
+            store.saveSet("alive", [{ uid: "b", n: 2 }], "uid", 120);
+
+            vi.advanceTimersByTime(1001);
+            vi.advanceTimersByTime(60_000);
+
+            expect((store as any).sets.has("expired")).toBe(false);
+            expect((store as any).sets.has("alive")).toBe(true);
         });
     });
 

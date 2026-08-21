@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import { CacheUtils } from "./CacheUtils.js";
 import { Destroy } from "./decorators/ObjectDecorators.js";
-import { MemoryStoreEntry, SimpleStore } from "./SimpleStore.js";
+import { MemoryStoreEntry, MemoryStoreSetEntry, SimpleStore } from "./SimpleStore.js";
 import type { RedisClientType } from "redis";
 
 /** How often the sweep interval reclaims expired, never-reloaded sessions. */
@@ -31,7 +31,7 @@ export class RedisStore implements SimpleStore {
     /** The maximum number of records to store. */
     public maxSize: number = 10000;
 
-    protected sets: Map<string, any[]> = new Map();
+    protected sets: Map<string, MemoryStoreSetEntry> = new Map();
 
     private sweepTimer: ReturnType<typeof setInterval>;
 
@@ -65,7 +65,7 @@ export class RedisStore implements SimpleStore {
 
     public async delete(id: string): Promise<void> {
         // Prepend the base key to the id
-        id = this.baseKey + id;
+        id = this._key(id);
 
         this.entries.delete(id);
         await this.client?.del(id);
@@ -77,7 +77,7 @@ export class RedisStore implements SimpleStore {
         }
 
         // Pre-pend the baseKey to all ids
-        ids = ids.map((id) => this.baseKey + id);
+        ids = ids.map((id) => this._key(id));
 
         // Delete all local entries
         for (const id of ids) {
@@ -90,7 +90,7 @@ export class RedisStore implements SimpleStore {
 
     public async deleteSet(id: string): Promise<void> {
         // Prepend the base key to the id
-        id = this.baseKey + id;
+        id = this._key(id);
 
         // We purposefully don't delete the individually stored records
         // as they may be relevant to other valid queries. Let them expire
@@ -104,9 +104,20 @@ export class RedisStore implements SimpleStore {
         clearInterval(this.sweepTimer);
     }
 
+    /**
+     * Builds the Redis/local-cache key for the given id. The id is percent-encoded so that it can never introduce
+     * a literal delimiter that spoofs a different `baseKey` namespace - e.g. a client-supplied id of "session:X"
+     * concatenated raw onto baseKey "user:" would produce the literal key "user:session:X", colliding with a
+     * second store constructed as `new RedisStore("user:session:", client)`. Encoding closes that off since
+     * `encodeURIComponent` never leaves a literal ":" (or "/", etc.) in its output.
+     */
+    private _key(id: string): string {
+        return this.baseKey + encodeURIComponent(id);
+    }
+
     public async load(id: string, skipRedis: boolean = false): Promise<Record<string, any> | undefined> {
         // Prepend the base key to the id
-        id = this.baseKey + id;
+        id = this._key(id);
 
         const entry = this.entries.get(id);
         if (entry) {
@@ -176,7 +187,7 @@ export class RedisStore implements SimpleStore {
         if (missing.length > 0) {
             let pipe = this.client.multi();
             for (const pair of missing) {
-                const id = this.baseKey + pair.id;
+                const id = this._key(pair.id);
                 pipe.get(id).ttl(id);
             }
             const result = await pipe.execAsPipeline();
@@ -214,7 +225,7 @@ export class RedisStore implements SimpleStore {
                 }
 
                 for (const entry of toSave) {
-                    this.entries.set(this.baseKey + entry.id, {
+                    this.entries.set(this._key(entry.id), {
                         data: entry.data,
                         expiresAt: Date.now() + entry.ttl * 1000,
                     });
@@ -226,25 +237,41 @@ export class RedisStore implements SimpleStore {
     }
 
     public async loadSet(id: string): Promise<(Record<string, any> | undefined)[] | undefined> {
-        id = this.baseKey + id;
+        id = this._key(id);
 
         // First look up the list of ids from local storage
-        const ids: any[] | undefined = this.sets.get(id);
-        if (ids) {
-            return this.loadMany(ids);
+        const entry = this.sets.get(id);
+        if (entry) {
+            // Same as load(): if the local copy hasn't expired, it's safe to serve directly. Otherwise Redis is
+            // the source of truth (another process may have since re-saved this set) - drop the stale local copy
+            // and fall through to check Redis instead of serving it forever.
+            if (entry.expiresAt > Date.now()) {
+                return this.loadMany(entry.ids);
+            }
+            this.sets.delete(id);
         }
 
         if (!this.client) {
             return undefined;
         }
 
-        // The set ids aren't stored locally, so let's try redis.
-        const json: string | null = await this.client.get(id);
+        // The set ids aren't stored locally, so let's try redis. Also grab the ttl so the local copy we cache
+        // below expires at the same time the Redis-side entry does, instead of being cached forever.
+        const [json, ttl] = await this.client.multi().get(id).ttl(id).execAsPipelineTyped();
         if (json) {
             const ids: any[] = JSON.parse(json);
 
-            // Store the list of ids locally for faster retrieval next time
-            this.sets.set(id, ids);
+            // Store the list of ids locally for faster retrieval next time, bounded by maxSize the same way
+            // entries are - otherwise a caller that varies the set id per request/user/query (a normal loadSet
+            // usage pattern) would grow this map without limit.
+            if (!this.sets.has(id) && this.sets.size >= this.maxSize) {
+                this.sweep();
+                while (this.sets.size >= this.maxSize && this.sets.size > 0) {
+                    CacheUtils.evictOldest(this.sets);
+                }
+            }
+            this.sets.delete(id);
+            this.sets.set(id, { ids, expiresAt: Date.now() + ttl * 1000 });
 
             return this.loadMany(ids);
         }
@@ -259,7 +286,7 @@ export class RedisStore implements SimpleStore {
         skipRedis: boolean = false,
     ): Promise<void> {
         // Prepend the base key to the id
-        id = this.baseKey + id;
+        id = this._key(id);
 
         // Write to Redis first (when configured): if it fails (bad connection, etc.), the local cache is left
         // untouched instead of reporting a "saved" value locally that never made it to the shared store other
@@ -290,7 +317,7 @@ export class RedisStore implements SimpleStore {
         }
 
         // Prepend the base key to each id
-        ids = ids.map((id) => this.baseKey + id);
+        ids = ids.map((id) => this._key(id));
 
         // Write to Redis first (when configured): if it fails (bad connection, etc.), the local cache is left
         // untouched instead of reporting a "saved" value locally that never made it to the shared store other
@@ -353,14 +380,27 @@ export class RedisStore implements SimpleStore {
         await this.saveMany(ids, records, ttl);
 
         // Finally, store our set of ids
-        await this.client?.setEx(this.baseKey + id, ttl, JSON.stringify(ids));
-        this.sets.set(this.baseKey + id, ids);
+        const key = this._key(id);
+        await this.client?.setEx(key, ttl, JSON.stringify(ids));
+
+        // Bounded by maxSize the same way entries are - see loadSet()/saveSet() comments above for why.
+        if (!this.sets.has(key) && this.sets.size >= this.maxSize) {
+            this.sweep();
+            while (this.sets.size >= this.maxSize && this.sets.size > 0) {
+                CacheUtils.evictOldest(this.sets);
+            }
+        }
+        this.sets.delete(key);
+        this.sets.set(key, { ids, expiresAt: Date.now() + ttl * 1000 });
     }
 
     private sweep(): void {
         const now = Date.now();
         for (const [sessionId, entry] of this.entries.entries()) {
             if (entry.expiresAt <= now) this.entries.delete(sessionId);
+        }
+        for (const [key, entry] of this.sets.entries()) {
+            if (entry.expiresAt <= now) this.sets.delete(key);
         }
     }
 }

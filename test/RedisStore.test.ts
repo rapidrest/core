@@ -461,10 +461,13 @@ describe("RedisStore Tests", () => {
         });
 
         it("Falls back to redis for the id list on a local cache miss, then caches it locally.", async () => {
-            let getMock: ReturnType<typeof vi.fn>;
+            let multiGetMock: ReturnType<typeof vi.fn>;
+            let multiTtlMock: ReturnType<typeof vi.fn>;
+            let execAsPipelineTypedMock: ReturnType<typeof vi.fn>;
             let execAsPipelineMock: ReturnType<typeof vi.fn>;
-            ({ store, getMock, execAsPipelineMock } = createStore("myapp:"));
-            getMock.mockResolvedValue(JSON.stringify(["a", "b"]));
+            ({ store, multiGetMock, multiTtlMock, execAsPipelineTypedMock, execAsPipelineMock } =
+                createStore("myapp:"));
+            execAsPipelineTypedMock.mockResolvedValueOnce([JSON.stringify(["a", "b"]), 60]);
             execAsPipelineMock.mockResolvedValue([
                 JSON.stringify({ uid: "a", n: 1 }),
                 60,
@@ -474,17 +477,47 @@ describe("RedisStore Tests", () => {
 
             const result = await store.loadSet("set1");
 
-            expect(getMock).toHaveBeenCalledWith("myapp:set1");
+            expect(multiGetMock).toHaveBeenCalledWith("myapp:set1");
+            expect(multiTtlMock).toHaveBeenCalledWith("myapp:set1");
             expect(result).toEqual([
                 { uid: "a", n: 1 },
                 { uid: "b", n: 2 },
             ]);
-            expect((store as any).sets.get("myapp:set1")).toEqual(["a", "b"]);
+            expect((store as any).sets.get("myapp:set1")).toEqual({ ids: ["a", "b"], expiresAt: expect.any(Number) });
 
             // A second call should now be served from the local set cache.
-            getMock.mockClear();
+            execAsPipelineTypedMock.mockClear();
             await store.loadSet("set1");
-            expect(getMock).not.toHaveBeenCalled();
+            expect(execAsPipelineTypedMock).not.toHaveBeenCalled();
+        });
+
+        it("Re-fetches from redis once the locally-cached set has expired, instead of serving it forever.", async () => {
+            let execAsPipelineTypedMock: ReturnType<typeof vi.fn>;
+            let execAsPipelineMock: ReturnType<typeof vi.fn>;
+            vi.useFakeTimers();
+            ({ store, execAsPipelineTypedMock, execAsPipelineMock } = createStore("myapp:"));
+            execAsPipelineTypedMock.mockResolvedValueOnce([JSON.stringify(["a"]), 1]);
+            execAsPipelineMock.mockResolvedValue([JSON.stringify({ uid: "a", n: 1 }), 1]);
+
+            await store.loadSet("set1");
+            vi.advanceTimersByTime(1001);
+
+            execAsPipelineTypedMock.mockClear();
+            execAsPipelineTypedMock.mockResolvedValueOnce([JSON.stringify(["a", "b"]), 60]);
+            execAsPipelineMock.mockResolvedValue([
+                JSON.stringify({ uid: "a", n: 1 }),
+                60,
+                JSON.stringify({ uid: "b", n: 2 }),
+                60,
+            ]);
+
+            const result = await store.loadSet("set1");
+
+            expect(execAsPipelineTypedMock).toHaveBeenCalled();
+            expect(result).toEqual([
+                { uid: "a", n: 1 },
+                { uid: "b", n: 2 },
+            ]);
         });
     });
 
@@ -506,6 +539,23 @@ describe("RedisStore Tests", () => {
 
             expect(setExMock).toHaveBeenCalledWith("myapp:id1", expect.any(Number), expect.any(String));
             expect((store as any).entries.has("myapp:id1")).toBe(true);
+        });
+
+        it("Percent-encodes the id so a colon in it cannot spoof a different baseKey's namespace.", async () => {
+            let setExMock: ReturnType<typeof vi.fn>;
+            ({ store, setExMock } = createStore("user:"));
+
+            // A caller-supplied id of "session:target" must not produce the literal key "user:session:target",
+            // which would collide with a second store constructed as `new RedisStore("user:session:", client)`.
+            await store.save("session:target", { role: "admin" });
+
+            expect(setExMock).toHaveBeenCalledWith(
+                "user:session%3Atarget",
+                expect.any(Number),
+                JSON.stringify({ role: "admin" }),
+            );
+            expect((store as any).entries.has("user:session:target")).toBe(false);
+            expect((store as any).entries.has("user:session%3Atarget")).toBe(true);
         });
 
         it("Skips writing to redis when skipRedis is true, but still updates the local cache.", async () => {
@@ -762,7 +812,7 @@ describe("RedisStore Tests", () => {
 
             // The local `sets` cache must hold the raw id list (not the full records), matching what loadSet()'s
             // local-cache fast path (and the redis fallback path) both expect to find there.
-            expect((store as any).sets.get("myapp:set1")).toEqual(["a", "b"]);
+            expect((store as any).sets.get("myapp:set1")).toEqual({ ids: ["a", "b"], expiresAt: expect.any(Number) });
 
             execAsPipelineMock.mockResolvedValue([JSON.stringify(data[0]), 30, JSON.stringify(data[1]), 30]);
             await expect(store.loadSet("set1")).resolves.toEqual(data);
@@ -776,7 +826,7 @@ describe("RedisStore Tests", () => {
 
             expect(multiSetExMock).toHaveBeenCalledTimes(1);
             expect(multiSetExMock).toHaveBeenCalledWith("storea", 60, JSON.stringify({ uid: "a", n: 1 }));
-            expect((store as any).sets.get("storeset1")).toEqual(["a"]);
+            expect((store as any).sets.get("storeset1")).toEqual({ ids: ["a"], expiresAt: expect.any(Number) });
         });
 
         it("Keeps a record whose idProp is falsy-but-valid (e.g. 0).", async () => {
@@ -786,7 +836,7 @@ describe("RedisStore Tests", () => {
             await store.saveSet("set1", [{ uid: 0, n: 1 }]);
 
             expect(multiSetExMock).toHaveBeenCalledWith("store0", 60, JSON.stringify({ uid: 0, n: 1 }));
-            expect((store as any).sets.get("storeset1")).toEqual([0]);
+            expect((store as any).sets.get("storeset1")).toEqual({ ids: [0], expiresAt: expect.any(Number) });
         });
 
         it("Uses a custom idProp when provided.", async () => {
@@ -810,6 +860,33 @@ describe("RedisStore Tests", () => {
             store = new RedisStore();
             await store.saveSet("set1", [{ uid: "a", n: 1 }]);
             await expect(store.loadSet("set1")).resolves.toEqual([{ uid: "a", n: 1 }]);
+        });
+
+        it("Evicts the single oldest set once the local set cache is at maxSize, without touching the others.", async () => {
+            store = new RedisStore();
+            store.maxSize = 2;
+
+            await store.saveSet("set1", [{ uid: "a", n: 1 }]);
+            await store.saveSet("set2", [{ uid: "b", n: 2 }]);
+            expect((store as any).sets.size).toBe(2);
+
+            await store.saveSet("set3", [{ uid: "c", n: 3 }]);
+            expect((store as any).sets.size).toBe(2);
+            expect((store as any).sets.has("store.set1")).toBe(false);
+            expect((store as any).sets.has("store.set3")).toBe(true);
+        });
+
+        it("Percent-encodes the id so it cannot spoof a different baseKey's namespace.", async () => {
+            let setExMock: ReturnType<typeof vi.fn>;
+            let multiSetExMock: ReturnType<typeof vi.fn>;
+            ({ store, setExMock, multiSetExMock } = createStore("user:"));
+
+            // Without encoding, `"user:" + "session:target"` would collide with a second store's
+            // `new RedisStore("user:session:", client)` namespace.
+            await store.saveSet("session:target", [{ uid: "a", n: 1 }]);
+
+            expect(setExMock).toHaveBeenCalledWith("user:session%3Atarget", 60, JSON.stringify(["a"]));
+            expect(multiSetExMock).toHaveBeenCalledWith("user:a", 60, JSON.stringify({ uid: "a", n: 1 }));
         });
     });
 

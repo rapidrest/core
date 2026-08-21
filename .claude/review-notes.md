@@ -2,7 +2,7 @@
 
 This file exists so future adversarial code reviews (human or agent) don't re-spend effort
 re-flagging design decisions this project has already settled, or re-discovering bugs already
-fixed. Read this before reviewing `src/`. Last updated after the 5th full review pass.
+fixed. Read this before reviewing `src/`. Last updated after the 7th full review pass.
 
 ## What this library is
 
@@ -38,6 +38,18 @@ A 6th pass (single-reviewer, not the two-agent methodology below) covered the `R
 added alongside it — see the entries below dated "6th pass". No new security findings; all findings
 were correctness bugs in the newly-added code, confirmed via `tsc --noEmit` (one was an outright build
 break) and/or direct tracing, not speculative.
+
+A 7th pass (back to the two-agent methodology) covered all 28 files in `src/`, including the two files
+added since the 5th pass (`RedisStore.ts`, `SimpleStore.ts`) that no prior *adversarial* pass had ever
+looked at (the 6th pass above was a lighter single-reviewer sweep focused narrowly on the
+ioredis→node-redis migration diff, not a full adversarial pass over that code). Both agents were told
+to weight `RedisStore.ts`/`SimpleStore.ts`/`MemoryStore.ts` most heavily and give the other 25
+(already-reviewed) files a lighter confirmatory pass. Result: nothing new in the 25 already-reviewed
+files; three genuine new findings, all in the `sets: Map` side of `RedisStore.ts`/`MemoryStore.ts`
+(a second, unmanaged cache sitting alongside the carefully-bounded `entries` map, added by the 6th
+pass's bulk/set work but never given the same TTL/size discipline) plus one Redis key-namespacing gap
+in `RedisStore.ts` — see the entries below dated "7th pass". All three fixed, with regression tests
+covering set-TTL expiry, set-cache size eviction, and the key-encoding fix.
 
 ## Settled design decisions — do NOT re-flag these
 
@@ -247,6 +259,44 @@ break) and/or direct tracing, not speculative.
   making the two `SimpleStore` implementations behave differently for the same input. Fixed —
   `MemoryStore.saveSet()` now skips records whose `idProp` is `undefined`/`null`, matching `RedisStore`.
 
+**`RedisStore.ts` / `MemoryStore.ts` — `sets` map had no TTL or size bound (7th pass)**
+- Both classes maintain a second map, `sets: Map<string, ...>`, alongside the carefully-bounded
+  `entries` map, used by `saveSet()`/`loadSet()`/`deleteSet()`. Unlike `entries`, `sets` had no size
+  cap, no expiry metadata, and was never touched by `sweep()` (which only iterated `entries`). Every
+  `saveSet()` call (and, in `RedisStore`, the Redis-fallback branch of `loadSet()`) did an unconditional
+  `.set()` with no `maxSize` check and no TTL tracking, so entries accumulated forever — any app calling
+  `saveSet`/`loadSet` with a per-request/per-user/per-query set id (a normal usage pattern; `SimpleStore`'s
+  own docstring frames it as a store with "a specified lifetime (TTL) and size") grows this map without
+  bound regardless of the configured `maxSize`, an unbounded-memory-growth DoS. Separately, in
+  `RedisStore` specifically, `loadSet()`'s local-cache fast path had no expiry check at all — once
+  populated, a set was served from the local cache *forever*, never re-consulting Redis, unlike every
+  other read path in the class (`load()` explicitly falls through to Redis on local expiry specifically
+  so one process's stale cache can't shadow a newer value another process wrote). Fixed in both files:
+  `sets` now stores `{ ids, expiresAt }` (new `MemoryStoreSetEntry` type in `SimpleStore.ts`), `sweep()`
+  reclaims expired `sets` entries the same way it reclaims `entries`, `saveSet()`/`loadSet()` apply the
+  same sweep-then-evict-to-`maxSize` guard `save()` already uses, and `RedisStore.loadSet()`'s local hit
+  now checks `expiresAt` and falls through to Redis (fetching the real remaining TTL via the same
+  `multi().get(id).ttl(id)` pattern `load()` uses) once expired, instead of serving the local copy
+  unconditionally.
+
+**`RedisStore.ts` — `baseKey` + `id` string concatenation could spoof a different store's namespace (7th pass)**
+- Every key-building call site (`delete`, `load`, `save`, `saveMany`, `saveSet`, etc.) built the actual
+  Redis/local-cache key via plain `this.baseKey + id` concatenation, with no delimiter enforcement and no
+  sanitization of the caller-supplied `id`. `baseKey` exists specifically so multiple `RedisStore`
+  instances can share one Redis backend without colliding, and hierarchical, colon-delimited `baseKey`s
+  are idiomatic Redis key naming (e.g. `"user:"` vs `"user:session:"`). Concretely: an app exposes a
+  client-controlled id in one low-privilege store (`draftStore = new RedisStore("user:", client)`,
+  `POST /api/drafts/:draftId` → `draftStore.save(req.params.draftId, req.body)`) alongside a second,
+  security-sensitive store using a hierarchical prefix (`sessionStore = new RedisStore("user:session:",
+  client)`). An attacker sets `draftId = "session:<targetSessionId>"`; `draftStore.save()` then writes
+  the literal Redis key `"user:session:<targetSessionId>"` — exactly the key `sessionStore` reads for
+  that session — letting the attacker overwrite session data through an unrelated, low-privilege
+  endpoint. Fixed — added a private `_key(id)` helper used by every key-building call site that
+  percent-encodes the id (`encodeURIComponent`) before appending it to `baseKey`, so a caller-supplied id
+  can never contain a literal `:` (or `/`, etc.) that reintroduces another namespace's delimiter. Ids made
+  only of unreserved characters (the common case — alphanumeric ids, UUIDs) are unaffected, since
+  `encodeURIComponent` is the identity function on those.
+
 **`NotificationsUtils.ts`**
 - `broadcastMessage()` published to a hardcoded `"allusers"` channel, and `sendMessage(uids, ...)`
   published directly to a channel named after the caller-supplied `uid`, with no namespace
@@ -260,13 +310,15 @@ break) and/or direct tracing, not speculative.
 
 ## Review methodology used
 
-Each pass used two adversarial agents reviewing the same 26 files in `src/` independently and in
-full (not sampled):
+Each two-agent pass reviewed every file in `src/` independently and in full (not sampled) — 26 files
+through the 5th pass; 28 from the 7th pass onward, after `RedisStore.ts`/`SimpleStore.ts` were added:
 - One with a security/attacker lens, calibrated to the client-reachability rule above.
 - One with a correctness/performance lens, looking for logic bugs, concurrency issues, memory
   leaks, performance bottlenecks, and resource-lifecycle bugs — with particular attention to the
   "mutates the caller's input object" bug class, which recurred across multiple unrelated files
-  (`StringUtils`, `AlertUtils`, `ThreadPool`) before it stopped showing up.
+  (`StringUtils`, `AlertUtils`, `ThreadPool`) before it stopped showing up, and (from the 7th pass on)
+  the "unmanaged cache with no TTL/size bound sitting next to a properly-bounded one" bug class first
+  seen in `RedisStore.ts`/`MemoryStore.ts`'s `sets` map.
 
 Every finding from every agent was independently re-verified against the actual source (and, where
 practical, against a runnable Node repro) before being accepted or fixed — agent output was never
@@ -277,4 +329,8 @@ design decisions" for the ones worth remembering explicitly.
 Later passes explicitly pointed the agents at files that got less attention in earlier rounds
 (`ApiError.ts`, `CacheUtils.ts`, `ObjectFactory.ts`, `UserUtils.ts`, `ValidationUtils.ts`,
 `decorators/ObjectDecorators.ts`, `TelemetryUtils.ts`, `ThreadWorker.ts`, `ThreadLogger.js`) to
-avoid re-covering the same heavily-patched files every time at the expense of everything else.
+avoid re-covering the same heavily-patched files every time at the expense of everything else. The
+7th pass applied the same idea to new files instead of under-reviewed old ones: when the codebase
+gains files between passes, point both agents at the new files first and let the already-reviewed
+files get a lighter confirmatory pass, rather than spreading equal effort as if every file were
+equally unreviewed.
