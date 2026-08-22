@@ -1,5 +1,10 @@
 # Release Notes
 
+## v5.1.0
+
+* Upgraded all dependencies
+* Fixed multiple issues with CI workflows
+
 ## v5.0.0
 
 * Switched from MIT license to MPLv2.0
