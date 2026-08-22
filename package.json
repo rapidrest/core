@@ -17,8 +17,8 @@
         "checkup": "yarn dlx @yarnpkg/doctor \"$@\"",
         "dependency-check": "yarn dlx depcheck \"$@\"",
         "report-coverage": "cat ./coverage/lcov.info | coveralls",
-        "test": "node --loader ts-node/esm ./node_modules/vitest/vitest.mjs run --config test/vitest.config.ts --coverage",
-        "test:prod": "npm run lint && node --loader ts-node/esm ./node_modules/vitest/vitest.mjs run --config test/vitest.config.ts --coverage",
+        "test": "vitest run --coverage",
+        "test:prod": "yarn lint && vitest run --coverage",
         "postversion": "git push && git push --tags"
     },
     "dependencies": {
