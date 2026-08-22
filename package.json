@@ -16,7 +16,6 @@
         "local-audit": "yarn install && yarn npm audit -A -R \"$@\"",
         "checkup": "yarn dlx @yarnpkg/doctor \"$@\"",
         "dependency-check": "yarn dlx depcheck \"$@\"",
-        "report-coverage": "cat ./coverage/lcov.info | coveralls",
         "test": "vitest run --coverage",
         "test:prod": "yarn lint && vitest run --coverage",
         "postversion": "git push && git push --tags"
@@ -53,7 +52,6 @@
         "@typescript-eslint/parser": "^8.67.0",
         "@vitest/coverage-v8": "^4.1.11",
         "axios": "^1.19.0",
-        "coveralls": "^3.1.1",
         "eslint": "^9.39.5",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-import": "^2.32.0",
