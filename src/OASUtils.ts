@@ -8,7 +8,7 @@ import { FileUtils } from "./FileUtils.js";
 import { Logger } from "./Logger.js";
 import path from "path";
 import { Axios } from "axios";
-import YAML from "js-yaml";
+import * as YAML from "js-yaml";
 import { StringUtils } from "./StringUtils.js";
 
 const logger = Logger();
