@@ -66,6 +66,11 @@ larger than `maxSize`, rather than a batch overlapping already-cached ids). See 
 "8th pass". Fixed the same way `saveMany()` was fixed — reverted to per-id check→evict→insert — with a
 regression test (`loadMany` with a 5-id batch against `maxSize = 2`) that fails against the old code.
 
+## Standing decisions
+
+- **Commit discipline.** Don't `git commit` unless explicitly asked, even after a full
+  review-and-fix cycle with passing tests. Leave changes staged/unstaged and say so.
+
 ## Settled design decisions — do NOT re-flag these
 
 - **`ClassLoader.load()`'s `dir`/`rootDir` have no path-containment/symlink checks.** This is
