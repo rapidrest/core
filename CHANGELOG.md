@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed `JWTUtils.createToken()`/`createTokenSync()` throwing (`"algorithms" is not allowed in "options"`) for any asymmetric secret, since `assertSafeAlgorithm` requires `options.algorithms` to be set in that case but `jsonwebtoken`'s `sign()` rejects that plural, `verify()`-only key outright. The single `algorithm` `sign()` needs is now derived from `algorithms` when not already set explicitly.
+
 ## [5.1.0] - 2026-08-22
 
 ### Changed

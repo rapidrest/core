@@ -212,6 +212,26 @@ export class JWTUtils {
     }
 
     /**
+     * Derives the options object actually passed to `jwt.sign()` from `config.options`: `jsonwebtoken`'s
+     * `SignOptions` takes a single `algorithm` string, not the `algorithms` array `VerifyOptions` (and thus
+     * `assertSafeAlgorithm`'s validation) uses - passing `algorithms` straight through, as `config.options`
+     * is otherwise forwarded unmodified, makes `jwt.sign()` throw ("algorithms" is not allowed in "options")
+     * for every asymmetric-secret caller, since `assertSafeAlgorithm` requires `algorithms` to be set in
+     * exactly that case. `algorithms` is therefore stripped here and, when the caller hasn't already set an
+     * explicit `algorithm`, its first entry is used as the one algorithm actually signed with.
+     */
+    private static buildSignOptions(config: JWTUtilsConfig): jwt.SignOptions | undefined {
+        if (!config.options) {
+            return undefined;
+        }
+        const { algorithms, ...signOptions }: any = config.options;
+        if (signOptions.algorithm === undefined && Array.isArray(algorithms) && algorithms.length > 0) {
+            signOptions.algorithm = algorithms[0];
+        }
+        return signOptions as jwt.SignOptions;
+    }
+
+    /**
      * Returns the key length, in bytes, required by `algorithm` (e.g. 32 for `aes-256-cbc`, 24 for
      * `aes-192-cbc`), so the scrypt-derived key `deriveKey`/`deriveKeySync` produce always matches whatever
      * cipher `passwordOptions.algorithm` actually names, instead of a length hard-coded for one specific
@@ -386,7 +406,7 @@ export class JWTUtils {
         }
 
         JWTUtils.assertSafeAlgorithm(config);
-        return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
+        return jwt.sign(payload, config.secret, JWTUtils.buildSignOptions(config));
     }
 
     /**
@@ -403,7 +423,7 @@ export class JWTUtils {
         }
 
         JWTUtils.assertSafeAlgorithm(config);
-        return jwt.sign(payload, config.secret, config.options as jwt.SignOptions | undefined);
+        return jwt.sign(payload, config.secret, JWTUtils.buildSignOptions(config));
     }
 
     /**

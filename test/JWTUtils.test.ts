@@ -396,16 +396,56 @@ describe("JWTUtils Tests.", () => {
     });
 
     it("Allows an asymmetric secret whose algorithms list correctly excludes HMAC algorithms.", async () => {
-        // jsonwebtoken's `sign()` rejects the plural `algorithms` key outright (it's a `verify()`-only option),
-        // so a token signed with an asymmetric key is produced directly here rather than via
-        // JWTUtils.createToken(); this test's focus is JWTUtils.decodeToken()'s assertSafeAlgorithm() call
-        // correctly allowing a safe (non-HMAC) `algorithms` restriction through instead of throwing.
+        // This test's focus is specifically JWTUtils.decodeToken()'s assertSafeAlgorithm() call correctly
+        // allowing a safe (non-HMAC) `algorithms` restriction through instead of throwing - the token itself
+        // is built directly via jsonwebtoken's own `sign()` (a single `algorithm`, not the `algorithms` list
+        // decodeToken's config uses) so this test doesn't also depend on createToken()'s own behavior, which
+        // is covered separately below.
         const token = jwt.sign({ profile: JSON.stringify(testUser), sessionUid: "s1" }, rsaPrivateKey, {
             algorithm: "RS256",
         });
         const decodeConfig = { secret: rsaPublicKey, options: { algorithms: ["RS256"] as any } };
         const payload = await JWTUtils.decodeToken(decodeConfig, token);
         expect(payload.profile).toEqual(testUser);
+    });
+
+    it("Can create and verify a JWT token signed with an asymmetric (RS256) secret.", async () => {
+        // `assertSafeAlgorithm` requires `options.algorithms` (plural, a `VerifyOptions`-only field) to be set
+        // for any non-HMAC secret, but `jsonwebtoken`'s `sign()` rejects that same key outright ("algorithms"
+        // is not allowed in "options") - `createToken()` must reconcile the two by deriving the single
+        // `algorithm` `sign()` actually needs from `algorithms` rather than forwarding it as-is.
+        const asymmetricConfig = { secret: rsaPrivateKey, options: { algorithms: ["RS256"] as any, issuer: "rapidrest.dev" } };
+
+        const token = await JWTUtils.createToken(asymmetricConfig, testUser);
+
+        expect(token).toBeDefined();
+        const decoded = jwt.verify(token, rsaPublicKey, { algorithms: ["RS256"], issuer: "rapidrest.dev" }) as any;
+        expect(JSON.parse(decoded.profile)).toEqual(testUser);
+
+        const payload = await JWTUtils.decodeToken({ secret: rsaPublicKey, options: { algorithms: ["RS256"] as any } }, token);
+        expect(payload.profile).toEqual(testUser);
+    });
+
+    it("Can create and verify a JWT token signed with an asymmetric (RS256) secret. (sync)", () => {
+        const asymmetricConfig = { secret: rsaPrivateKey, options: { algorithms: ["RS256"] as any } };
+
+        const token = JWTUtils.createTokenSync(asymmetricConfig, testUser);
+
+        expect(token).toBeDefined();
+        expect(() => jwt.verify(token, rsaPublicKey, { algorithms: ["RS256"] })).not.toThrow();
+    });
+
+    it("Honors an explicit `algorithm` over `algorithms` when both are set.", async () => {
+        // An RSA key can sign with any of RS256/RS384/RS512, so setting `algorithm: "RS512"` alongside
+        // `algorithms: ["RS256"]` (satisfying assertSafeAlgorithm, which only inspects `algorithms`) proves
+        // the token is actually signed with the explicit `algorithm`, not silently re-derived from
+        // `algorithms[0]`: verifying against the wrong one must fail, and the right one must succeed.
+        const mixedConfig = { secret: rsaPrivateKey, options: { algorithm: "RS512", algorithms: ["RS256"] as any } };
+
+        const token = await JWTUtils.createToken(mixedConfig, testUser);
+
+        expect(() => jwt.verify(token, rsaPublicKey, { algorithms: ["RS256"] })).toThrow();
+        expect(() => jwt.verify(token, rsaPublicKey, { algorithms: ["RS512"] })).not.toThrow();
     });
 
     it("Rejects an unrecognized secret shape (e.g. a GetPublicKeyOrSecret callback) without restricted algorithms.", async () => {
