@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v5.2.0
 
 * Fix JWTUtils.createToken() rejecting any asymmetric signing secret
 
