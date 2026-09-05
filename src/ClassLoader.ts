@@ -126,7 +126,18 @@ export class ClassLoader {
                     continue;
                 }
                 let fqn: string = `${pkg.length > 0 ? pkg + "." : ""}${name === "default" ? path.basename(fileName, path.extname(fileName)) : name}`;
-                clazz.fqn = fqn;
+                // `clazz` is the actual exported class object, cached and shared by Node's ESM loader across
+                // every module that imports it - not a copy private to this `ClassLoader` instance. A class
+                // re-exported through more than one barrel (e.g. a model class reachable from both a
+                // datastore-specific barrel and a test harness's own re-export of it) is loaded here once per
+                // reachable path, each with a potentially different `pkg`/`fqn`. Concurrent `ClassLoader`
+                // instances (e.g. one per test file's own `Server`, all sharing one Node process) can race to
+                // stamp different `fqn` values onto that same shared object at nearly the same time. Only
+                // stamping it once - first write wins, later ones left alone - makes the eventual value stable
+                // and race-free instead of depending on which concurrent write happens to land last.
+                if (!clazz.fqn) {
+                    clazz.fqn = fqn;
+                }
                 this.classes.set(fqn, clazz);
             }
         } else {

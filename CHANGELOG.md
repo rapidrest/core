@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed `ClassLoader.registerModule()` racing to stamp a `.fqn` onto a class object shared (via Node's ES module cache) across every `ClassLoader` instance that loads it — a class reachable from more than one package path, loaded concurrently by separate `ClassLoader`s (e.g. one per test's own `Server`), could have its `.fqn` overwritten mid-flight depending on load order. The first write now wins; later loads of the same class leave its `.fqn` alone.
+
 ## [5.2.0] - 2026-09-05
 
 ### Added

@@ -110,6 +110,25 @@ export default class MultiDotDefault {
         expect(loader.getClass("MyClassNamed")).toBeDefined();
     });
 
+    it("Does not overwrite a class's fqn once set, even when reloaded under a different package path.", async () => {
+        // `clazz.fqn = fqn` stamps the actual exported class object - cached and shared by Node's ESM loader
+        // across every module that imports it, not a copy private to one `ClassLoader` instance. Loading the
+        // exact same file via two `ClassLoader`s rooted at different directories (simulating two concurrent
+        // `Server`/`ClassLoader` instances racing to load a class reachable from more than one package path)
+        // must not let the second load clobber the fqn the first one already stamped.
+        const first: ClassLoader = new ClassLoader("./test/test-classes");
+        await first.load();
+        const clazz = first.getClass("com.company.typescript.MyClass");
+        expect(clazz.fqn).toBe("com.company.typescript.MyClass");
+
+        const second: ClassLoader = new ClassLoader("./test/test-classes/com/company");
+        await second.load();
+        // Registered under its own (different) computed fqn in the second loader's own map...
+        expect(second.getClass("typescript.MyClass")).toBe(clazz);
+        // ...but the shared class object's own `.fqn` property is untouched by the second load.
+        expect(clazz.fqn).toBe("com.company.typescript.MyClass");
+    });
+
     it("Can load a directory containing a module that exports a primitive value alongside a class.", async () => {
         // Regression test: `export const VERSION = "1.0.0"` alongside a class export must not crash the whole
         // directory load - ES modules run in strict mode, and assigning `.fqn` to a primitive-valued export
