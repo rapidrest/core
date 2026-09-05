@@ -10,28 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [5.2.0] - 2026-09-05
 
 ### Added
-- Added contributing guide
-- Added changelog and release script
 - Added @rapidrest/cli as dev dependency
-
-### Changed
-- Renaming contributing to contributors
-- assertSafeAlgorithm() requires config.options.algorithms (plural) to be
-- set whenever the secret isn't a plain HMAC string, to guard against
-- algorithm-confusion attacks. But createToken()/createTokenSync() then
-- passed that same options object straight to jsonwebtoken's jwt.sign(),
-- which rejects the plural "algorithms" key outright (it's a verify()-only
-- option) — meaning signing with any asymmetric key (RSA, EC, etc.) was
-- unconditionally broken, just never previously exercised.
-- jwt.sign() now receives a derived SignOptions with `algorithms` stripped
-- and its first entry used as the single `algorithm` when the caller hasn't
-- already set one explicitly — assertSafeAlgorithm's own validation is
-- unchanged.
-- Surfaced by @rapidrest/auth's new authorization-server work, which is the
-- first caller to sign tokens with an RSA key instead of a shared HMAC
-- secret.
-- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
-- Swapped release script for `rapidrest release`
 
 ### Fixed
 - Fixed JWTUtils.createToken() rejecting any asymmetric signing secret
