@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v5.2.1
 
 * ClassLoader now loads files synchronously instead of in parallel. This fixes an issue with race conditions on module imports
 * Fixed issue with Logger transport that suppressed call stack errors

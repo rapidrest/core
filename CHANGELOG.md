@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.1] - 2026-09-08
+
+### Changed
+- registerModule() unconditionally assigns clazz.fqn = fqn on every class
+- it discovers. clazz is the actual exported class object, cached by
+- Node's ESM loader and shared across every module that imports it — not
+- a copy private to this ClassLoader instance. A class reachable from more
+- than one package path (e.g. a model class re-exported through two
+- different barrels) gets loaded once per reachable path; when two
+- ClassLoader instances load it concurrently (one per test file's own
+- Server, all sharing one Node process under sequential-but-same-process
+- test execution), they can race to stamp different fqn values onto that
+- same shared object, so a lookup can transiently see the wrong (or an
+- about-to-be-overwritten) value depending on load order.
+- The first write now wins — later loads of an already-tagged class leave
+- its .fqn alone — making the eventual value deterministic instead of
+- depending on which concurrent writer happens to run last.
+- Surfaced by @rapidrest/auth's growing OAuth authorization-server test
+- suite, whose added test-server route/model files raised the odds of two
+- Server instances' class-loading passes overlapping in one test run.
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- ClassLoader now loads files synchronously instead of in parallel. This fixes an issue with race conditions on module imports
+
+### Fixed
+- Fixed changelog entries for v5.2.0
+- Fixed ClassLoader racing to stamp .fqn on a shared class object
+- Fixed issue with Logger transport that suppressed call stack errors
+- Fixed CI workflow publish
+
 ### Fixed
 - Fixed `ClassLoader.registerModule()` racing to stamp a `.fqn` onto a class object shared (via Node's ES module cache) across every `ClassLoader` instance that loads it — a class reachable from more than one package path, loaded concurrently by separate `ClassLoader`s (e.g. one per test's own `Server`), could have its `.fqn` overwritten mid-flight depending on load order. The first write now wins; later loads of the same class leave its `.fqn` alone.
 
@@ -324,7 +353,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/rapidrest/core/compare/v5.2.0...HEAD
+[Unreleased]: https://github.com/rapidrest/core/compare/v5.2.1...HEAD
+[5.2.1]: https://github.com/rapidrest/core/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/rapidrest/core/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/rapidrest/core/compare/v5.0.1...v5.1.0
 [5.0.1]: https://github.com/rapidrest/core/compare/v5.0.0...v5.0.1
