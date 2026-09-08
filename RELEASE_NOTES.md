@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+* ClassLoader now loads files synchronously instead of in parallel. This fixes an issue with race conditions on module imports
+* Fixed issue with Logger transport that suppressed call stack errors
+
 ## v5.2.0
 
 * Fix JWTUtils.createToken() rejecting any asymmetric signing secret

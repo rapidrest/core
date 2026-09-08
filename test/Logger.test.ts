@@ -93,6 +93,26 @@ describe("Logger Tests", () => {
         expect(logger).toBeDefined();
     });
 
+    it("Logs a real Error's message (and stack) instead of 'undefined' when passed directly to .error().", async () => {
+        const name = "test-logger-error-message";
+        const logger = Logger("debug", name);
+        logger.error(new Error("something specific broke"));
+
+        let content = "";
+        for (let i = 0; i < 50; i++) {
+            if (fs.existsSync(`${name}error.log`)) {
+                content = fs.readFileSync(`${name}error.log`, "utf8");
+                if (content.includes("something specific broke")) {
+                    break;
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+
+        expect(content).toContain("something specific broke");
+        expect(content).not.toMatch(/error: undefined/);
+    });
+
     it("Evicts the oldest cached logger once the cache exceeds its maximum size.", () => {
         const baseName = "test-logger-eviction";
         let firstLogger: any;

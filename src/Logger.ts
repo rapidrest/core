@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import winston from "winston";
 import { CacheUtils } from "./CacheUtils.js";
 const { format, transports } = winston;
-const { combine, timestamp, printf } = format;
+const { combine, timestamp, printf, errors } = format;
 export const FILENAME = fileURLToPath(import.meta.url).replace(/\\/g, "/");
 
 export const logFormat = printf((info: any) => {
@@ -84,7 +84,14 @@ export const Logger: any = function(level: string = "debug", file: string | unde
     // colorize() into it would corrupt on-disk logs and any other attached transport with escape sequences that
     // break grep/log shippers/aggregators expecting a plain-text level field. The logger-level format is left as
     // the uncolored base precisely so those other transports still inherit sensible plain-text formatting.
-    const base = combine(format.splat(), format.simple(), timestamp(), source(), logFormat);
+    // `errors()` must run first: when a caller logs an `Error` directly (e.g. `logger.error(err)`),
+    // winston's `Logger.log()` uses the `Error` instance itself as `info` (see its `arguments.length
+    // === 2` fast path) rather than copying `err.message` onto a plain object. `Error.prototype.message`
+    // is a non-enumerable own property, so every format below that builds a new object via
+    // `Object.assign({}, info, ...)` (`format.simple()` among them) silently drops it, and `logFormat`
+    // ends up rendering `message: undefined` no matter what the error actually said. `errors({stack:
+    // true})` re-hydrates `message` (and `stack`) as real enumerable properties before that happens.
+    const base = combine(errors({ stack: true }), format.splat(), format.simple(), timestamp(), source(), logFormat);
     const transport: any[] = [new transports.Console({ format: combine(format.colorize(), base) })];
     if (file) {
         transport.push(new winston.transports.File({ filename: file + "error.log", level: "error" }));

@@ -155,42 +155,49 @@ export class ClassLoader {
         let fqp: string = path.resolve(path.join(this.rootDir, dir));
 
         let files: fs.Dirent[] = await fs.promises.readdir(fqp, { withFileTypes: true });
-        // Processed concurrently via `Promise.all` since sibling entries in a directory are independent of one
-        // another; `Promise.all` still `await`s every entry (and propagates the first rejection) before `load()`
-        // itself resolves, so parallelizing here only shortens cold-start time rather than changing behavior.
-        await Promise.all(
-            files.map(async (file) => {
-                // Is the file in the ignore list?
-                for (const iPath of this.ignore) {
-                    if (file.name.match(iPath)) {
-                        return;
-                    }
-                }
+        // Processed sequentially, NOT via `Promise.all` (as this used to): sibling entries look independent,
+        // but their *transitive imports* often aren't - two sibling route files that both (directly or
+        // indirectly) import the same not-yet-loaded module race to be the first to trigger its evaluation.
+        // ES module semantics guarantee a shared, safe result for genuinely concurrent `import()` calls to the
+        // same specifier in Node's own loader, but that guarantee does not reliably extend through every
+        // bundler/transform layer a consuming app's test runner may put in front of dynamic `import()` (e.g. a
+        // Vite/vite-node SSR pipeline) - there, a second `import()` of a module already mid-evaluation can
+        // resolve before that module has finished assigning its exports, handing the caller `undefined` for a
+        // class it then registers under a `fqn`/passes to `ObjectFactory.register()`, which throws reading
+        // `.fqn` off it. That surfaced as an intermittent `Cannot read properties of undefined (reading 'fqn')`
+        // failure, load-order dependent and worse the more sibling files a directory has. Loading one entry
+        // fully before starting the next removes the concurrent-first-import race entirely; the resulting
+        // `this.classes` map is unaffected by order, so this is a cold-start-time cost only, not a behavior
+        // change.
+        for (const file of files) {
+            // Is the file in the ignore list?
+            if (this.ignore.some((iPath) => file.name.match(iPath))) {
+                continue;
+            }
 
-                let relpath: string = path.relative(this.rootDir, fqp);
-                let pkg: string = relpath.replace(sepRegex, ".");
+            let relpath: string = path.relative(this.rootDir, fqp);
+            let pkg: string = relpath.replace(sepRegex, ".");
 
-                let fullpath: string = path.join(fqp, file.name);
+            let fullpath: string = path.join(fqp, file.name);
 
-                let extension = path.extname(file.name);
-                if (!extension) {
-                    extension = file.name;
-                }
+            let extension = path.extname(file.name);
+            if (!extension) {
+                extension = file.name;
+            }
 
-                // `Dirent.isDirectory()` reflects the directory entry itself, not what it points to, so a
-                // symlinked directory falls through to the extension-matching branches below rather than being
-                // recursed into - deliberate: following it here (e.g. via `fs.statSync().isDirectory()`) would
-                // let a symlink that points back at one of its own ancestors send `load()` into unbounded
-                // recursion.
-                if (file.isDirectory()) {
-                    let subdir: string = path.join(dir, file.name);
-                    await this.load(subdir);
-                } else if (this.includeJavaScript && extension.match(/^\.(js|cjs|mjs)$/)) {
-                    await this.registerModule(fullpath, pkg, file.name);
-                } else if (this.includeTypeScript && extension.match(/^\.(ts|cts|mts|tsx)$/)) {
-                    await this.registerModule(fullpath, pkg, file.name);
-                }
-            }),
-        );
+            // `Dirent.isDirectory()` reflects the directory entry itself, not what it points to, so a
+            // symlinked directory falls through to the extension-matching branches below rather than being
+            // recursed into - deliberate: following it here (e.g. via `fs.statSync().isDirectory()`) would
+            // let a symlink that points back at one of its own ancestors send `load()` into unbounded
+            // recursion.
+            if (file.isDirectory()) {
+                let subdir: string = path.join(dir, file.name);
+                await this.load(subdir);
+            } else if (this.includeJavaScript && extension.match(/^\.(js|cjs|mjs)$/)) {
+                await this.registerModule(fullpath, pkg, file.name);
+            } else if (this.includeTypeScript && extension.match(/^\.(ts|cts|mts|tsx)$/)) {
+                await this.registerModule(fullpath, pkg, file.name);
+            }
+        }
     }
 }
