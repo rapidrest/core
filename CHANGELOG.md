@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.2] - 2026-09-08
+
+### Fixed
+- Fixed CI build workflow
+
 ## [5.2.1] - 2026-09-08
 
 ### Changed
@@ -353,7 +358,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/rapidrest/core/compare/v5.2.1...HEAD
+[Unreleased]: https://github.com/rapidrest/core/compare/v5.2.2...HEAD
+[5.2.2]: https://github.com/rapidrest/core/compare/v5.2.1...v5.2.2
 [5.2.1]: https://github.com/rapidrest/core/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/rapidrest/core/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/rapidrest/core/compare/v5.0.1...v5.1.0

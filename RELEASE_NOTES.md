@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v5.2.2
 
 ## v5.2.1
 
