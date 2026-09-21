@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v6.0.0
 
 * **Breaking:** `MessagingUtils` SMS configuration moved from the top-level `twilio` key to a new
   `sms_config` key, which names the provider in `provider` and holds its settings in `config` — move
