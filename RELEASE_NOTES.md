@@ -1,5 +1,21 @@
 # Release Notes
 
+## Unreleased
+
+* **Breaking:** `MessagingUtils` SMS configuration moved from the top-level `twilio` key to a new
+  `sms_config` key, which names the provider in `provider` and holds its settings in `config` — move
+  your Twilio settings to `sms_config: { provider: twilio, config: { accountSid, token } }`. The old
+  `twilio` key is now ignored, so `sendSMS()` will fail until it is migrated
+* **Breaking:** `MessagingUtils.sendSMS()` now throws `SMS is not configured.` instead of
+  `Twilio is not configured.` when no SMS provider is configured
+* Added Telnyx as an alternative SMS provider to Twilio (`sms_config.provider: telnyx`), sending through
+  the Telnyx Messaging API with `axios`, so no additional package is needed
+* Added `MessagingUtils.sendWhatsApp()`, which sends free-form text or approved message templates through
+  Meta's WhatsApp Business Cloud API. Configure it with the new `whatsapp` key and the new `whatsapp`,
+  `whatsapp_template` and `whatsapp_options` template fields
+* Errors from the Telnyx and WhatsApp APIs now include the provider's own explanation of the failure in
+  the thrown message
+
 ## v5.2.2
 
 ## v5.2.1

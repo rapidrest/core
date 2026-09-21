@@ -4,10 +4,13 @@ This file exists so that Claude sessions working in this repo don't re-litigate 
 decisions or re-discover the same issues from scratch. It is local to this repo (not tied to
 any one machine's global Claude memory), so it travels with the code.
 
-**Maintenance rule:** when a standing decision changes, update the section below in place
-(don't just append a contradiction lower down). When a new investigation/session produces a
-decision, finding, or reverted approach worth remembering, add a dated entry under Session Log.
-Keep entries terse — this is a reference, not a transcript.
+**Maintenance rule:** this file is the **primary source of truth** for this repo — read it before
+starting work, and where it disagrees with a session's own memory, this file wins. Update it in the
+same session as the work, before reporting the task done, for feature work and small fixes as well
+as reviews. When a standing decision changes, update the section below in place (don't just append a
+contradiction lower down). When a new investigation/session produces a decision, finding, or
+reverted approach worth remembering, add a dated entry under Session Log. Keep entries terse — this
+is a reference, not a transcript.
 
 ## What this library is
 
@@ -81,6 +84,19 @@ regression test (`loadMany` with a 5-id batch against `maxSize = 2`) that fails 
   message is a short list of one-line bullets, one per item. This mirrors JP's standing convention
   across his other repos.
 
+- **Release notes: new entries always go under a `## Unreleased` heading** at the top of
+  `RELEASE_NOTES.md` — never a guessed version number (the version is chosen at release time by
+  `rapidrest release`). Keep the existing style: `*` bullets, a `**Breaking:**` prefix for breaking
+  changes, wrapped near 100 columns. **Never edit `CHANGELOG.md`** — it is written automatically
+  during the release process, so don't add entries to it or its `[Unreleased]` section, and don't
+  offer to.
+
+- **Checks before reporting code work done:** `npx tsc --noEmit`, `npx eslint ./src ./test`,
+  `npx prettier --check` on the touched files, and `npx vitest run --coverage`. `vitest.config`
+  enforces **100%** lines/functions/branches/statements, so new code needs a test for every branch.
+  HEAD is prettier-clean but no script enforces it, so run `prettier --write` on touched files.
+  `tsconfig` targets `es2020` (no `Error` `cause` option).
+
 ## Settled design decisions — do NOT re-flag these
 
 - **`ClassLoader.load()`'s `dir`/`rootDir` have no path-containment/symlink checks.** This is
@@ -111,11 +127,35 @@ regression test (`loadMany` with a 5-id batch against `maxSize = 2`) that fails 
   mid-lifecycle is outside its intended usage contract, so "re-init wipes listeners" /
   "no way to rotate the token without wiping listeners" is not worth flagging. (This was raised and
   explicitly dismissed in review pass 4 for exactly this reason.)
-- **`MessagingUtils.sendEmail`/`sendSMS`'s `options` passthrough to nodemailer/twilio** only
-  protects `from`/`subject`/`text`/`html`/`body` from override; other fields (e.g. nodemailer's
-  `attachments[].path`) pass through untouched. This is intended flexibility, not a bug — it's only
-  a problem if a developer naively forwards a raw client request body as `options`, which is a
-  footgun to note in docs, not something to fix in the library.
+- **`MessagingUtils.sendEmail`/`sendSMS`/`sendWhatsApp`'s `options` passthrough to
+  nodemailer/twilio/Telnyx/WhatsApp** only protects the sender and rendered-content fields from
+  override (`from`/`subject`/`text`/`html`/`body` for e-mail and Twilio, `from`/`text` for Telnyx,
+  `messaging_product`/`type`/`text`/`template` for WhatsApp); other fields (e.g. nodemailer's
+  `attachments[].path`) pass through untouched, and the recipient (`to`) is deliberately
+  caller-supplied. This is intended flexibility, not a bug — it's only a problem if a developer
+  naively forwards a raw client request body as `options`, which is a footgun to note in docs, not
+  something to fix in the library.
+- **`MessagingUtils` SMS is configured by one explicit `sms_config: { provider, config }` block**,
+  where `provider` is `"twilio"` or `"telnyx"` — no auto-detection and no fallback between
+  providers. A provider that is named but invalid fails with "`<Provider>` is not configured." The
+  old top-level `twilio` key is no longer read (breaking; recorded in `RELEASE_NOTES.md`, nothing
+  warns at startup). Telnyx sends through its Messaging API (`POST /v2/messages`) using `axios`, so
+  it needs no extra package. Both providers require `templates.from.sms` and take the recipient
+  from `options.to`.
+- **`MessagingUtils.sendWhatsApp()` is a separate channel, not an SMS provider.** It calls Meta's
+  WhatsApp Business Cloud API directly (not via Twilio/Telnyx), has its own template fields
+  (`whatsapp`, `whatsapp_template`, `whatsapp_options`) and sends from `whatsapp.phoneNumberId`
+  rather than `from.sms`. WhatsApp only delivers free-form text within 24h of the recipient's last
+  message, so `whatsapp_template` (an approved Meta template; its `parameters` are Handlebars
+  strings filling the body placeholders in order) takes precedence over `whatsapp` when both are
+  set. Only body text parameters are supported (no header/button/named parameters). The default
+  Graph API version `v23.0` is the one Meta's docs showed, not confirmed to be the newest; it is
+  overridable with `whatsapp.apiVersion`.
+- **Evaluated and rejected for `MessagingUtils` — don't re-propose:** **Klaviyo** (no direct-send
+  API; SMS only goes out through an event-triggered flow configured inside Klaviyo, so the message
+  text and sender live outside this library) and **Telnyx Verify** (OTP-only with the message text
+  defined on the Verify profile, priced at a premium, and redundant with the rapidrest auth system —
+  verification codes are the auth system's job, not `MessagingUtils`').
 - **`ValidationUtils.checkURL`/`checkPhone` are thin wrappers** around `validator.isURL`/
   `isMobilePhone` with default options. They don't reject private/internal hosts and aren't SSRF
   protection despite what their names might suggest. Footgun to note (the name could mislead a
@@ -378,3 +418,15 @@ avoid re-covering the same heavily-patched files every time at the expense of ev
 gains files between passes, point both agents at the new files first and let the already-reviewed
 files get a lighter confirmatory pass, rather than spreading equal effort as if every file were
 equally unreviewed.
+
+## Session Log
+
+- **2026-09-21 — `MessagingUtils`: Telnyx SMS + WhatsApp.** Added Telnyx as an SMS provider and
+  `sendWhatsApp()`; see "Settled design decisions". Klaviyo and Telnyx Verify were both built, then
+  scrapped at the user's direction. The user then restructured provider config into `sms_config`, and
+  the tests were updated to match: the provider-preference and `sms_provider` tie-break tests were
+  removed because a single `sms_config` names exactly one provider. Notes were recorded under
+  `## Unreleased` in `RELEASE_NOTES.md` after a first attempt used a guessed `## v6.0.0` heading.
+  Known leftovers in `src/MessagingUtils.ts`: the `smsConfig` comment, the `resolveSmsProvider()` and
+  `sendSMS()` docstrings, and the `Unknown sms_provider` error text still refer to the removed
+  `sms_provider` key.
